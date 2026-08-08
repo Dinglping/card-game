@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>朋友棋牌</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,system-ui,sans-serif;background:#f0f2f5;color:#333;max-width:500px;margin:0 auto;min-height:100vh;font-size:14px}
+button{cursor:pointer;border:none;border-radius:6px;padding:10px 16px;font-size:14px;background:#0052D9;color:#fff;transition:opacity .15s}
+button:active{opacity:.7}
+button:disabled{background:#ccc;cursor:default}
+input{padding:10px;border:1px solid #d0d5dd;border-radius:6px;font-size:14px;width:100%}
+.label{font-size:12px;color:#888;margin-bottom:4px}
+
+/* 大厅 */
+#lobby{padding:20px;display:flex;flex-direction:column;gap:16px;min-height:100vh;justify-content:center}
+#lobby h1{text-align:center;font-size:22px;color:#0052D9}
+.lobby-card{background:#fff;border-radius:10px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.lobby-card h3{margin-bottom:12px;font-size:15px}
+.lobby-row{display:flex;gap:8px;margin-top:8px}
+.lobby-row input{flex:1}
+.room-info{text-align:center;padding:12px;background:#e8f0fe;border-radius:8px;font-size:13px;color:#0052D9}
+.player-list{list-style:none;margin:8px 0}
+.player-list li{padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:13px}
+.player-list li:last-child{border:none}
+.host-tag{background:#0052D9;color:#fff;padding:1px 6px;border-radius:3px;font-size:11px;margin-left:4px}
+.wait-hint{text-align:center;color:#999;font-size:12px;padding:8px}
+
+/* 游戏区 */
+#game{display:none;padding:8px;min-height:100vh}
+.opponents{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:6px}
+.opp{background:#fff;border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:0 1px 2px rgba(0,0,0,.05);min-width:80px;text-align:center;max-width:140px}
+.opp.active{border:2px solid #0052D9}
+.opp-name{font-weight:600;font-size:13px}
+.opp-cards{color:#888;font-size:11px;margin:2px 0}
+.opp-baogi{color:#e60012;font-size:10px;font-weight:600}
+.opp-front{display:flex;flex-wrap:wrap;gap:2px;justify-content:center;margin-top:3px}
+.mini-card{display:inline-flex;align-items:center;justify-content:center;width:20px;height:28px;border-radius:3px;background:#fff;border:1px solid #ddd;font-size:10px;font-weight:700;line-height:1}
+.mini-card.red{color:#e60012}
+.mini-card.black{color:#333}
+.mini-group{display:inline-flex;gap:1px;border:1px solid #c0c8d0;border-radius:4px;padding:1px;background:#f8f9fa}
+.group-tag{font-size:8px;color:#888;text-align:center}
+
+/* 桌面区 */
+.table-area{background:#fff;border-radius:10px;padding:12px;margin:6px 0;box-shadow:0 1px 3px rgba(0,0,0,.06);text-align:center;min-height:80px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
+.table-card{display:inline-flex;align-items:center;justify-content:center;width:48px;height:68px;border-radius:6px;background:#fff;border:2px solid #0052D9;font-size:20px;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,.12)}
+.table-card.red{color:#e60012}
+.table-card.black{color:#333}
+.table-empty{color:#999;font-size:12px}
+.table-source{font-size:10px;color:#888}
+.messages{font-size:11px;color:#666;max-height:70px;overflow-y:auto;text-align:left;width:100%;padding:4px 8px;background:#f8f9fa;border-radius:6px}
+.messages div{padding:1px 0;line-height:1.4}
+
+/* 我的手牌 */
+.my-area{margin-top:6px}
+.my-front{background:#e8f0fe;border-radius:8px;padding:6px;margin-bottom:6px;display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.my-front-label{font-size:11px;color:#666;width:100%;margin-bottom:2px}
+.front-group{display:inline-flex;gap:1px;border:1px solid #b0c4de;border-radius:4px;padding:2px;background:#fff}
+.hand-label{font-size:12px;color:#666;margin-bottom:4px;display:flex;justify-content:space-between}
+.hand-label .drawn-tag{color:#0052D9;font-weight:600}
+.hand-row{display:flex;gap:4px;overflow-x:auto;padding:4px 0;-webkit-overflow-scrolling:touch}
+.hand-card{flex-shrink:0;display:flex;flex-direction:column;align-items:center;justify-content:center;width:42px;height:62px;border-radius:6px;background:#fff;border:1.5px solid #d0d5dd;font-size:16px;font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.08);position:relative;transition:transform .1s}
+.hand-card.red{color:#e60012;border-color:#ffb0b0}
+.hand-card.black{color:#333;border-color:#c0c8d0}
+.hand-card.playable{border-color:#0052D9;box-shadow:0 0 6px rgba(0,82,217,.3)}
+.hand-card.playable:active{transform:scale(.92)}
+.hand-card .suit{font-size:13px}
+.hand-card .rank{font-size:15px}
+.hand-card .drawn-mark{position:absolute;top:-4px;right:-4px;width:14px;height:14px;background:#0052D9;border-radius:50%;font-size:8px;color:#fff;display:flex;align-items:center;justify-content:center}
+
+/* 动作区 */
+.actions{display:flex;flex-wrap:wrap;gap:6px;padding:8px 0;justify-content:center}
+.actions button{padding:8px 14px;font-size:13px}
+.btn-win{background:#e60012}
+.btn-grab{background:#7b61ff}
+.btn-eat{background:#00a870}
+.btn-flip{background:#999}
+.btn-dig{background:#ed7b00}
+.btn-declare{background:#e60012}
+.btn-skip{background:#999}
+
+/* 游戏结束 */
+#gameover{display:none;padding:20px;text-align:center}
+#gameover h2{color:#0052D9;margin-bottom:12px}
+.score-table{width:100%;border-collapse:collapse;margin:12px 0}
+.score-table th,.score-table td{padding:8px;border-bottom:1px solid #eee;font-size:14px}
+.score-table th{color:#888;font-weight:600;font-size:12px}
+.score-pos{color:#00a870;font-weight:700}
+.score-neg{color:#e60012;font-weight:700}
+
+.turn-hint{text-align:center;font-size:12px;color:#0052D9;padding:4px;font-weight:600}
+.wait-hint{text-align:center;font-size:12px;color:#999;padding:4px}
+</style>
+</head>
+<body>
+
+<!-- 连接状态 -->
+<div id="connStatus" style="position:fixed;top:0;left:0;right:0;background:#fff3cd;color:#856404;text-align:center;font-size:12px;padding:2px;z-index:999">连接中...</div>
+
+<!-- 大厅 -->
+<div id="lobby">
+  <h1>朋友棋牌</h1>
+  <div class="lobby-card">
+    <h3>创建房间</h3>
+    <div class="label">你的名字</div>
+    <input id="myName" placeholder="输入名字" maxlength="8">
+    <div style="margin-top:8px"><button onclick="createRoom()" style="width:100%">创建房间</button></div>
+  </div>
+  <div class="lobby-card">
+    <h3>加入房间</h3>
+    <div class="label">房间号</div>
+    <input id="joinRoom" placeholder="4位数字" maxlength="4" inputmode="numeric">
+    <div class="lobby-row">
+      <button onclick="joinRoom()" style="flex:1">加入</button>
+    </div>
+  </div>
+  <div id="roomInfo" style="display:none" class="lobby-card">
+    <div class="room-info" id="roomDisplay"></div>
+    <h3 style="margin-top:12px">玩家列表</h3>
+    <ul class="player-list" id="playerList"></ul>
+    <div id="hostControls">
+      <button onclick="startGame()" style="width:100%">开始游戏</button>
+    </div>
+    <div id="guestWait" class="wait-hint" style="display:none">等待房主开始游戏...</div>
+  </div>
+</div>
+
+<!-- 游戏区 -->
+<div id="game">
+  <div class="opponents" id="opponents"></div>
+  <div class="table-area" id="tableArea"></div>
+  <div class="messages" id="msgArea"></div>
+  <div class="my-area">
+    <div class="my-front" id="myFront" style="display:none"></div>
+    <div class="hand-label" id="handLabel"></div>
+    <div class="hand-row" id="handRow"></div>
+    <div class="actions" id="actionArea"></div>
+  </div>
+</div>
+
+<!-- 游戏结束 -->
+<div id="gameover">
+  <h2 id="goTitle">游戏结束</h2>
+  <div id="goDetail" style="font-size:14px;color:#666;margin-bottom:8px"></div>
+  <table class="score-table" id="scoreTable"></table>
+  <button onclick="restart()" style="margin-top:8px">再来一局</button>
+</div>
+
+<script>
+let ws, myId = -1, curState = null, cardSelectMode = null, wsReady = false, pendingMsgs = [];
+
+function connect() {
+  const host = location.host || 'localhost:8080';
+  ws = new WebSocket('ws://' + host);
+  ws.onopen = () => {
+    wsReady = true;
+    document.getElementById('connStatus').style.display = 'none';
+    for (const m of pendingMsgs) ws.send(JSON.stringify(m));
+    pendingMsgs = [];
+  };
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'state') {
+      curState = msg.state;
+      myId = msg.state.myId;
+      render(msg.state);
+    } else if (msg.type === 'error') {
+      alert(msg.msg);
+    }
+  };
+  ws.onclose = () => {
+    wsReady = false;
+    const s = document.getElementById('connStatus');
+    s.style.display = '';
+    s.style.background = '#f8d7da';
+    s.style.color = '#721c24';
+    s.textContent = '连接已断开，请刷新页面';
+  };
+  ws.onerror = () => {
+    const s = document.getElementById('connStatus');
+    s.style.display = '';
+    s.style.background = '#f8d7da';
+    s.style.color = '#721c24';
+    s.textContent = '连接失败！请确认通过 http://localhost:8080 访问（不要直接打开文件）';
+  };
+}
+
+function send(msg) {
+  if (ws && wsReady) ws.send(JSON.stringify(msg));
+  else if (ws) pendingMsgs.push(msg);  // 连接未就绪，排队
+  else alert('连接未建立，请刷新页面');
+}
+
+function createRoom() {
+  const name = document.getElementById('myName').value.trim() || '玩家A';
+  send({type:'create', name});
+}
+
+function joinRoom() {
+  const name = document.getElementById('myName').value.trim() || '玩家';
+  const roomId = document.getElementById('joinRoom').value.trim();
+  if (!roomId) return alert('请输入房间号');
+  send({type:'join', roomId, name});
+}
+
+function startGame() {
+  send({type:'start'});
+}
+
+function restart() {
+  send({type:'restart'});
+}
+
+function sendAction(action) {
+  cardSelectMode = null;
+  send({type:'action', ...action});
+}
+
+// ===== 渲染 =====
+window.onerror = function(msg, url, line, col, err) {
+  const d = document.createElement('div');
+  d.style.cssText = 'position:fixed;top:0;left:0;right:0;background:red;color:#fff;z-index:9999;font-size:12px;padding:4px';
+  d.textContent = 'JS错误: ' + msg + ' (行' + line + ')';
+  document.body.appendChild(d);
+  return true;
+};
+
+function render(s) {
+  if (!s) { console.error('render收到null state'); return; }
+  try {
+  // 调试横幅
+  var dbg = document.getElementById('dbgBar');
+  if (!dbg) { dbg = document.createElement('div'); dbg.id='dbgBar'; dbg.style.cssText='background:#e8f0fe;color:#0052D9;font-size:11px;padding:2px;text-align:center'; document.getElementById('game').insertBefore(dbg, document.getElementById('game').firstChild); }
+  dbg.textContent = 'phase=' + s.phase + ' player=' + s.myId + ' turn=' + s.currentPlayer + ' players=' + (s.players?s.players.length:0) + ' actions=' + (s.actions?s.actions.length:0) + ' hand=' + (s.myHand?s.myHand.length:0);
+
+  const lobby = document.getElementById('lobby');
+  const game = document.getElementById('game');
+  const over = document.getElementById('gameover');
+
+  if (s.phase === 'lobby') {
+    lobby.style.display = '';
+    game.style.display = 'none';
+    over.style.display = 'none';
+    renderRoom(s);
+    return;
+  }
+  if (s.phase === 'ended') {
+    lobby.style.display = 'none';
+    game.style.display = 'none';
+    over.style.display = '';
+    renderGameOver(s);
+    return;
+  }
+
+  lobby.style.display = 'none';
+  game.style.display = '';
+  over.style.display = 'none';
+  renderGame(s);
+
+  // 自动跳过处理
+  if (s.actions.length === 1 && s.actions[0].auto) {
+    setTimeout(() => send({type:'action', action: s.actions[0].action, auto:true}), 300);
+  }
+
+  // 出牌选择模式
+  const needPlay = s.actions.some(a => a.action === 'play' || a.action === 'playFirst');
+  if (needPlay && s.currentPlayer === myId) {
+    cardSelectMode = s.actions.find(a => a.action === 'play') ? 'play' : 'playFirst';
+  } else {
+    cardSelectMode = null;
+  }
+  } catch(e) {
+    console.error('render错误:', e.message, e.stack);
+    document.getElementById('actionArea').innerHTML = '<div style="color:red;padding:10px">渲染错误: ' + e.message + '</div>';
+  }
+}
+
+function renderRoom(s) {
+  const ri = document.getElementById('roomInfo');
+  if (!s.players || s.players.length === 0) {
+    ri.style.display = 'none';
+    return;
+  }
+  ri.style.display = '';
+  document.getElementById('roomDisplay').textContent = s.roomId ? '房间号: ' + s.roomId : '房间已创建';
+
+  const pl = document.getElementById('playerList');
+  pl.innerHTML = s.players.map((p,i) =>
+    `<li>${p.name}${i===0?'<span class="host-tag">房主</span>':''}</li>`
+  ).join('');
+
+  const isHost = myId === 0;
+  document.getElementById('hostControls').style.display = isHost ? '' : 'none';
+  document.getElementById('guestWait').style.display = isHost ? 'none' : '';
+}
+
+function cardHTML(c, cls) {
+  const color = (c.suit === 1 || c.suit === 2) ? 'red' : 'black';
+  return `<span class="mini-card ${color}">${c.label}${c.suitChar}</span>`;
+}
+
+function renderGame(s) {
+  // 对手
+  const oppDiv = document.getElementById('opponents');
+  oppDiv.innerHTML = s.players.filter((p,i) => i !== myId).map(p => {
+    const isActive = p.id === s.currentPlayer && s.phase !== 'ended';
+    const frontHTML = p.front.map(g => {
+      const tags = {'偷':'偷','抓':'抓','扒':'扒','吃':'吃'};
+      const cards = g.cards.map(c => cardHTML(c)).join('');
+      return `<span class="mini-group"><span class="group-tag">${tags[g.type]||''}</span>${cards}</span>`;
+    }).join('');
+    return `<div class="opp ${isActive?'active':''}">
+      <div class="opp-name">${p.name}</div>
+      <div class="opp-cards">${p.handSize}张</div>
+      ${p.baogi?'<div class="opp-baogi">爆起</div>':''}
+      <div class="opp-front">${frontHTML}</div>
+    </div>`;
+  }).join('');
+
+  // 桌面区
+  const ta = document.getElementById('tableArea');
+  if (s.tableCard) {
+    const tc = s.tableCard;
+    const color = (tc.suit === 1 || tc.suit === 2) ? 'red' : 'black';
+    const src = s.tableSource === 'play' ? '玩家打出' : '牌堆翻出';
+    ta.innerHTML = `<div class="table-card ${color}">${tc.label}<span style="font-size:14px">${tc.suitChar}</span></div>
+      <div class="table-source">${src} · 牌堆${s.deckSize}张</div>`;
+  } else {
+    ta.innerHTML = `<div class="table-empty">桌面无牌 · 牌堆${s.deckSize}张</div>`;
+  }
+
+  // 消息
+  const ma = document.getElementById('msgArea');
+  ma.innerHTML = (s.messages || []).map(m => `<div>${m}</div>`).join('');
+  ma.scrollTop = ma.scrollHeight;
+
+  // 我的面前牌
+  const mf = document.getElementById('myFront');
+  if (s.myFront && s.myFront.length > 0) {
+    mf.style.display = '';
+    mf.innerHTML = '<div class="my-front-label">我的面前牌</div>' +
+      s.myFront.map(g => {
+        const tags = {'偷':'偷','抓':'抓','扒':'扒','吃':'吃'};
+        return `<span class="front-group"><span class="group-tag">${tags[g.type]||''}</span>${g.cards.map(c=>cardHTML(c)).join('')}</span>`;
+      }).join('');
+  } else {
+    mf.style.display = 'none';
+  }
+
+  // 手牌标签
+  const hl = document.getElementById('handLabel');
+  let labelHTML = `<span>我的手牌 (${s.myHand.length}张)</span>`;
+  if (s.lastDrawn) labelHTML += `<span class="drawn-tag">刚摸: ${s.lastDrawn.label}${s.lastDrawn.suitChar}</span>`;
+  hl.innerHTML = labelHTML;
+
+  // 手牌
+  const hr = document.getElementById('handRow');
+  const isMyTurn = s.currentPlayer === myId;
+  const canPlay = cardSelectMode !== null;
+  hr.innerHTML = s.myHand.map(c => {
+    const color = (c.suit === 1 || c.suit === 2) ? 'red' : 'black';
+    const playable = canPlay ? 'playable' : '';
+    const drawnMark = s.lastDrawn && c.id === s.lastDrawn.id ? '<span class="drawn-mark">★</span>' : '';
+    return `<div class="hand-card ${color} ${playable}" data-id="${c.id}">
+      ${drawnMark}
+      <span class="rank">${c.label}</span>
+      <span class="suit">${c.suitChar}</span>
+    </div>`;
+  }).join('');
+
+  // 手牌点击
+  if (canPlay) {
+    hr.querySelectorAll('.hand-card').forEach(el => {
+      el.onclick = () => {
+        const cardId = parseInt(el.dataset.id);
+        if (cardSelectMode === 'play') sendAction({action:'play', cardId});
+        else if (cardSelectMode === 'playFirst') sendAction({action:'playFirst', cardId});
+      };
+    });
+  }
+
+  // 动作按钮
+  const aa = document.getElementById('actionArea');
+  if (!isMyTurn || s.actions.length === 0 || (s.actions.length === 1 && s.actions[0].auto)) {
+    // 显示等待提示
+    if (s.phase === 'stealing') {
+      const cur = s.players[s.stealTurn || 0];
+      aa.innerHTML = `<div class="wait-hint">${cur ? cur.name + ' 偷起中...' : '等待中...'}</div>`;
+    } else if (s.phase === 'declaring' || s.phase === 'a_baogi') {
+      aa.innerHTML = `<div class="wait-hint">等待宣告...</div>`;
+    } else if (s.phase === 'first_play') {
+      aa.innerHTML = `<div class="wait-hint">等待玩家A出牌...</div>`;
+    } else if (s.phase === 'playing') {
+      const cur = s.players[s.currentPlayer];
+      aa.innerHTML = `<div class="wait-hint">${cur ? cur.name + ' 出牌中...' : '等待中...'}</div>`;
+    } else {
+      aa.innerHTML = '';
+    }
+    return;
+  }
+
+  // 渲染动作按钮
+  let btns = '';
+  if (cardSelectMode) {
+    // 选牌模式：只显示提示，手牌已可点击
+    btns = `<div class="turn-hint">👆 点击手牌打出</div>`;
+  } else {
+    for (const a of s.actions) {
+      if (a.auto) continue;
+      let cls = '';
+      if (a.action === 'win' || a.action === 'winGrab') cls = 'btn-win';
+      else if (a.action === 'grab') cls = 'btn-grab';
+      else if (a.action === 'eat') cls = 'btn-eat';
+      else if (a.action === 'flip') cls = 'btn-flip';
+      else if (a.action === 'dig') cls = 'btn-dig';
+      else if (a.action === 'declareBaogi') cls = 'btn-declare';
+      else if (a.action === 'skipSteal' || a.action === 'skipBaogi' || a.action === 'skipDig') cls = 'btn-skip';
+
+      const label = a.label || a.action;
+      const fanInfo = a.fan != null ? ` (${a.fan===0?'小胡':a.fan>=3?'满贯':a.fan+'番'})` : '';
+      btns += `<button class="${cls}" data-action='${JSON.stringify(a)}'>${label}${fanInfo}</button>`;
+    }
+  }
+
+  aa.innerHTML = btns;
+  if (!cardSelectMode) {
+    aa.querySelectorAll('button').forEach(el => {
+      el.onclick = () => {
+        const action = JSON.parse(el.dataset.action);
+        const {action: act, cardId, rank} = action;
+        const msg = {action: act};
+        if (cardId != null) msg.cardId = cardId;
+        if (rank != null) msg.rank = rank;
+        sendAction(msg);
+      };
+    });
+  }
+}
+
+function renderGameOver(s) {
+  const title = document.getElementById('goTitle');
+  const detail = document.getElementById('goDetail');
+  const table = document.getElementById('scoreTable');
+
+  if (s.winner === -1) {
+    title.textContent = '本局作废';
+    detail.textContent = '牌堆耗尽，无人胡牌';
+  } else {
+    const w = s.players[s.winner];
+    const fan = w.winFan || 0;
+    const fanName = fan === 0 ? '小胡' : fan >= 3 ? '满贯' : fan + '番';
+    const baogi = w.baogi ? ' +爆起' : '';
+    const wt = s.winType === 'fangpao' ? '放炮胡' : s.winType === 'grab' ? '抓轴胡' : s.winType === 'tianhu' ? '天胡' : '牌堆胡';
+    title.textContent = w.name + ' 胡牌！';
+    detail.textContent = `${wt} · ${fanName}${baogi}`;
+  }
+
+  let html = '<tr><th>玩家</th><th>得分</th></tr>';
+  for (let i = 0; i < s.players.length; i++) {
+    const score = s.scores[i] || 0;
+    const cls = score >= 0 ? 'score-pos' : 'score-neg';
+    const sign = score > 0 ? '+' : '';
+    const winnerTag = i === s.winner ? ' ★' : '';
+    html += `<tr><td>${s.players[i].name}${winnerTag}</td><td class="${cls}">${sign}${score}</td></tr>`;
+  }
+  table.innerHTML = html;
+
+  // 重启按钮：只有房主能重启
+  const restartBtn = document.querySelector('#gameover button');
+  if (myId === 0) {
+    restartBtn.style.display = '';
+    restartBtn.textContent = '再来一局';
+  } else {
+    restartBtn.style.display = 'none';
+    // 添加等待提示
+    if (!document.getElementById('waitRestart')) {
+      const wait = document.createElement('div');
+      wait.id = 'waitRestart';
+      wait.className = 'wait-hint';
+      wait.style.marginTop = '8px';
+      wait.textContent = '等待房主开始新游戏...';
+      restartBtn.parentNode.appendChild(wait);
+    }
+  }
+}
+
+// 启动
+connect();
+</script>
+</body>
+</html>
