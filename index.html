@@ -76,10 +76,7 @@ input{padding:10px;border:1px solid #d0d5dd;border-radius:6px;font-size:14px;wid
 .hand-card .drawn-mark{position:absolute;top:-4px;right:-4px;width:14px;height:14px;background:#0052D9;border-radius:50%;font-size:8px;color:#fff;display:flex;align-items:center;justify-content:center}
 
 /* 手牌排序模式 */
-.hand-card.sort-mode{border-color:#7b61ff;box-shadow:0 0 6px rgba(123,97,255,.3);cursor:grab}
-.hand-card.sort-mode:active{cursor:grabbing}
-.hand-card.drag-over{border-color:#00a870;box-shadow:0 0 8px rgba(0,168,112,.4)}
-.sort-link{font-size:11px;color:#7b61ff;cursor:pointer;text-decoration:underline;padding:0 4px}
+.sort-link{display:none}
 .sort-tag{font-size:11px;color:#fff;background:#7b61ff;padding:1px 8px;border-radius:3px;cursor:pointer}
 
 /* 动作区 */
@@ -677,9 +674,7 @@ let curState = null;
 let myId = -1;
 let cardSelectMode = null;
 let imReady = false;
-let sortMode = false; // 排序模式开关
-let handOrder = [];   // 本地手牌排序顺序（card.id 数组）
-let dragCardId = null; // 拖拽的牌id
+let handOrder = [];   // 本地手牌排序顺序（card.id 数组），空=未排序
 
 // 按 handOrder 排序手牌视图
 function sortHand(hand) {
@@ -694,16 +689,8 @@ function sortHand(hand) {
   });
 }
 
-// 切换排序模式（退出时走完整 render 以恢复 cardSelectMode）
-function toggleSortMode() {
-  sortMode = !sortMode;
-  if (sortMode && curState && curState.myHand) {
-    handOrder = curState.myHand.map(c => c.id);
-  }
-  if (curState) render(curState);
-}
-
-// 自动排序：配组优先，从小到大；不能配组的放末尾
+// 理牌：按配组规则自动排序，结果持久化在 handOrder 中
+// 规则：1.从左到右点数从小到大 2.配组牌紧跟其后 3.不能配组的放末尾
 // 例：A J 7 5 3 K K 9 → A K K 3 J 5 9 7
 function autoSortHand() {
   if (!curState || !curState.myHand || curState.myHand.length === 0) return;
@@ -1234,11 +1221,8 @@ function renderGame(s) {
   const hl = document.getElementById('handLabel');
   let labelHTML = `<span>我的手牌 (${s.myHand.length}张)</span>`;
   if (s.lastDrawn) labelHTML += `<span class="drawn-tag">刚摸: ${s.lastDrawn.label}${s.lastDrawn.suitChar}</span>`;
-  if (sortMode) {
-    labelHTML += `<span class="sort-tag" onclick="autoSortHand()">自动排序</span>`;
-    labelHTML += `<span class="sort-tag" onclick="toggleSortMode()">完成排序</span>`;
-  } else if (s.myHand.length > 1) {
-    labelHTML += `<span class="sort-link" onclick="toggleSortMode()">排序</span>`;
+  if (s.myHand.length > 1) {
+    labelHTML += `<span class="sort-tag" onclick="autoSortHand()">理牌</span>`;
   }
   hl.innerHTML = labelHTML;
 
@@ -1249,78 +1233,14 @@ function renderGame(s) {
   else if (s.phase === 'declaring') isMyTurn = (s.declareTurn === myId);
   else if (s.phase === 'a_baogi') isMyTurn = (myId === 0);
   else isMyTurn = (s.currentPlayer === myId);
-  const canPlay = cardSelectMode !== null && !sortMode;
-  const displayHand = sortMode ? sortHand(s.myHand) : s.myHand;
+  const canPlay = cardSelectMode !== null;
+  const displayHand = sortHand(s.myHand);
   hr.innerHTML = displayHand.map(c => {
     const color = (c.suit === 1 || c.suit === 2) ? 'red' : 'black';
     const playable = canPlay ? 'playable' : '';
     const drawnMark = s.lastDrawn && c.id === s.lastDrawn.id ? '<span class="drawn-mark">★</span>' : '';
-    const sortAttr = sortMode ? ` draggable="true" data-drag-id="${c.id}"` : '';
-    return `<div class="hand-card ${color} ${playable}${sortMode?' sort-mode':''}" data-id="${c.id}"${sortAttr}>${drawnMark}<span class="rank">${c.label}</span><span class="suit">${c.suitChar}</span></div>`;
+    return `<div class="hand-card ${color} ${playable}" data-id="${c.id}">${drawnMark}<span class="rank">${c.label}</span><span class="suit">${c.suitChar}</span></div>`;
   }).join('');
-
-  // 排序模式：拖拽交换（PC用HTML5拖拽，手机用touch）
-  if (sortMode) {
-    let touchCardId = null;
-    let touchGhost = null;
-    hr.querySelectorAll('.hand-card').forEach(el => {
-      const cardId = parseInt(el.dataset.dragId);
-      // PC拖拽
-      el.ondragstart = (e) => {
-        dragCardId = cardId;
-        e.dataTransfer.effectAllowed = 'move';
-        el.style.opacity = '0.4';
-      };
-      el.ondragend = () => { el.style.opacity = ''; };
-      el.ondragover = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; };
-      el.ondrop = (e) => {
-        e.preventDefault();
-        const targetId = parseInt(el.dataset.dragId);
-        if (dragCardId === null || dragCardId === targetId) return;
-        const fromIdx = handOrder.indexOf(dragCardId);
-        const toIdx = handOrder.indexOf(targetId);
-        if (fromIdx < 0 || toIdx < 0) return;
-        handOrder.splice(fromIdx, 1);
-        handOrder.splice(toIdx, 0, dragCardId);
-        dragCardId = null;
-        renderGame(curState);
-      };
-      // 手机触摸
-      el.ontouchstart = (e) => {
-        touchCardId = cardId;
-        el.style.opacity = '0.4';
-      };
-      el.ontouchmove = (e) => {
-        e.preventDefault();
-        const touch = e.touches[0];
-        const target = document.elementFromPoint(touch.clientX, touch.clientY);
-        const targetCard = target ? target.closest('.hand-card') : null;
-        // 移除之前的高亮
-        hr.querySelectorAll('.drag-over').forEach(x => x.classList.remove('drag-over'));
-        if (targetCard) targetCard.classList.add('drag-over');
-      };
-      el.ontouchend = (e) => {
-        el.style.opacity = '';
-        hr.querySelectorAll('.drag-over').forEach(x => x.classList.remove('drag-over'));
-        const touch = e.changedTouches[0];
-        const target = document.elementFromPoint(touch.clientX, touch.clientY);
-        const targetCard = target ? target.closest('.hand-card') : null;
-        if (touchCardId !== null && targetCard) {
-          const targetId = parseInt(targetCard.dataset.dragId);
-          if (touchCardId !== targetId) {
-            const fromIdx = handOrder.indexOf(touchCardId);
-            const toIdx = handOrder.indexOf(targetId);
-            if (fromIdx >= 0 && toIdx >= 0) {
-              handOrder.splice(fromIdx, 1);
-              handOrder.splice(toIdx, 0, touchCardId);
-              renderGame(curState);
-            }
-          }
-        }
-        touchCardId = null;
-      };
-    });
-  }
 
   if (canPlay) {
     hr.querySelectorAll('.hand-card').forEach(el => {
