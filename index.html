@@ -277,10 +277,12 @@ function findEatable(hand, tableCard) {
 function hasGrabPair(hand, tableCard) {
   return hand.filter(c => c.rank === tableCard.rank).length >= 2;
 }
-function canDig(player) {
-  if (!player.lastDrawn) return false;
-  for (const g of player.front) {
-    if (g.type !== '吃' && g.cards[0].rank === player.lastDrawn.rank) return true;
+// 扒：自己翻出的牌（tableSource=flip, tableSourcePlayer=idx）与面前组（偷/抓，3张同点数）同点数
+function canDigTable(g, idx) {
+  if (!g.tableCard || g.tableSource !== 'flip' || g.tableSourcePlayer !== idx) return false;
+  const player = g.players[idx];
+  for (const grp of player.front) {
+    if (grp.type !== '吃' && grp.cards.length === 3 && grp.cards[0].rank === g.tableCard.rank) return true;
   }
   return false;
 }
@@ -484,21 +486,22 @@ function handleAction(g, idx, msg) {
     addMsg(g, player.name + ' 抓了三个' + rankLabel(rank) + '，摸了一张牌');
     const winResult = canWinWith(player, null);
     if (winResult.canWin) { g.subState = 'after_grab'; addMsg(g, player.name + ' 可以抓轴胡！'); broadcastViews(g); }
-    else if (canDig(player)) { g.subState = 'after_grab'; broadcastViews(g); }
     else { g.subState = 'must_play'; broadcastViews(g); }
   }
   else if (a === 'dig') {
-    if (!player.lastDrawn || !canDig(player)) return;
-    const mg = player.front.find(g2 => g2.type !== '吃' && g2.cards[0].rank === player.lastDrawn.rank);
-    player.hand = player.hand.filter(c => c.id !== player.lastDrawn.id);
-    mg.cards.push(player.lastDrawn); mg.type = '扒';
-    addMsg(g, player.name + ' 扒了 ' + SUITS[player.lastDrawn.suit] + rankLabel(player.lastDrawn.rank));
+    // 扒：将自己翻出的桌牌加入面前同点数组（偷/抓），然后从牌堆摸一张牌
+    if (!g.tableCard || g.tableSource !== 'flip' || g.tableSourcePlayer !== idx) return;
+    const mg = player.front.find(g2 => g2.type !== '吃' && g2.cards.length === 3 && g2.cards[0].rank === g.tableCard.rank);
+    if (!mg) return;
+    const digCard = g.tableCard;
+    mg.cards.push(digCard); mg.type = '扒';
+    g.tableCard = null;
+    addMsg(g, player.name + ' 扒了 ' + SUITS[digCard.suit] + rankLabel(digCard.rank));
     if (checkDeckEmpty(g)) return;
     const drawn = g.deck.shift();
     player.hand.push(drawn); player.lastDrawn = drawn;
     const winResult = canWinWith(player, null);
     if (winResult.canWin) { g.subState = 'after_grab'; broadcastViews(g); }
-    else if (canDig(player)) { g.subState = 'after_grab'; broadcastViews(g); }
     else { g.subState = 'must_play'; broadcastViews(g); }
   }
   else if (a === 'skipDig' || a === 'skipPlay') {
@@ -516,6 +519,13 @@ function handleAction(g, idx, msg) {
     g.tableCard = null;
     addMsg(g, player.name + ' 吃了 ' + SUITS[eatCard.suit] + rankLabel(eatCard.rank) + '+' + SUITS[tc.suit] + rankLabel(tc.rank));
     g.subState = 'must_play';
+    // 安全兜底：吃完后手牌为空且牌堆也空，无法出牌，判作废
+    if (player.hand.length === 0 && g.deck.length === 0) {
+      addMsg(g, '牌堆已空，本局作废');
+      g.phase = 'ended'; g.winner = -1; g.scores = {};
+      for (let i = 0; i < g.players.length; i++) g.scores[i] = 0;
+      broadcastViews(g); return;
+    }
     broadcastViews(g);
   }
   else if (a === 'flip') {
@@ -587,11 +597,14 @@ function getAvailableActions(g, idx) {
       // 抓牌：不判断顺序，任何人都可以抓
       if (hasGrabPair(player.hand, g.tableCard)) actions.push({action:'grab', label:'抓牌'});
 
-      // 吃牌：判断上下家关系
-      if (canEatTable(g, idx) && player.hand.length >= 1) {
+      // 吃牌：判断上下家关系，且吃完后必须还有牌可打出（吃消耗1张不补牌）
+      if (canEatTable(g, idx) && player.hand.length >= 2) {
         const eatable = findEatable(player.hand, g.tableCard);
         for (const c of eatable) actions.push({action:'eat', cardId:c.id, label:'吃 '+SUITS[c.suit]+rankLabel(c.rank)});
       }
+
+      // 扒：自己翻出的牌与面前组（偷/抓）同点数
+      if (canDigTable(g, idx)) actions.push({action:'dig', label:'扒'});
 
       // 忽略（过）：不想吃/抓/胡，把桌牌留给下家
       if (g.subState === null) actions.push({action:'pass', label:'过'});
@@ -601,10 +614,16 @@ function getAvailableActions(g, idx) {
     } else if (g.subState === 'after_grab') {
       const wr2 = canWinWith(player, null);
       if (wr2.canWin) actions.push({action:'winGrab', label:'抓轴胡', fan:wr2.fan});
-      if (canDig(player)) actions.push({action:'dig', label:'扒'});
-      actions.push({action:'skipDig', label:'不扒，出牌'});
+      actions.push({action:'skipDig', label:'出牌'});
     } else if (g.subState === 'must_play') {
-      actions.push({action:'play', label:'选择一张牌打出'});
+      // 兜底：手牌为空无法出牌（正常流程不会发生），自动翻牌避免卡局
+      if (player.hand.length === 0 && g.deck.length > 0) {
+        actions.push({action:'flip', label:'手牌已空，翻牌'});
+      } else if (player.hand.length === 0 && g.deck.length === 0) {
+        // 手牌空且牌堆空，无动作可做，返回空列表触发作废检测
+      } else {
+        actions.push({action:'play', label:'选择一张牌打出'});
+      }
     }
     // must_play 状态下，如果有吃/抓按钮，也需要出牌选项；如果没有则只有must_play
   }
@@ -682,6 +701,43 @@ function toggleSortMode() {
     handOrder = curState.myHand.map(c => c.id);
   }
   if (curState) render(curState);
+}
+
+// 自动排序：配组优先，从小到大；不能配组的放末尾
+// 例：A J 7 5 3 K K 9 → A K K 3 J 5 9 7
+function autoSortHand() {
+  if (!curState || !curState.myHand || curState.myHand.length === 0) return;
+  const hand = curState.myHand;
+  const byRank = {};
+  for (const c of hand) {
+    if (!byRank[c.rank]) byRank[c.rank] = [];
+    byRank[c.rank].push(c);
+  }
+  const mainOrder = [];
+  const tailOrder = [];
+  const processed = {};
+  for (let r = 1; r <= 13; r++) {
+    if (processed[r] || !byRank[r]) continue;
+    if (r === 7) {
+      const sevens = byRank[7];
+      const pairs = Math.floor(sevens.length / 2);
+      for (let i = 0; i < pairs * 2; i++) mainOrder.push(sevens[i]);
+      if (sevens.length % 2 === 1) tailOrder.push(sevens[sevens.length - 1]);
+      processed[7] = true;
+    } else {
+      const r2 = 14 - r;
+      if (byRank[r2]) {
+        for (const c of byRank[r]) mainOrder.push(c);
+        for (const c of byRank[r2]) mainOrder.push(c);
+        processed[r] = true; processed[r2] = true;
+      } else {
+        for (const c of byRank[r]) tailOrder.push(c);
+        processed[r] = true;
+      }
+    }
+  }
+  handOrder = [...mainOrder, ...tailOrder].map(c => c.id);
+  renderGame(curState);
 }
 
 function showLoading(text) {
@@ -1179,6 +1235,7 @@ function renderGame(s) {
   let labelHTML = `<span>我的手牌 (${s.myHand.length}张)</span>`;
   if (s.lastDrawn) labelHTML += `<span class="drawn-tag">刚摸: ${s.lastDrawn.label}${s.lastDrawn.suitChar}</span>`;
   if (sortMode) {
+    labelHTML += `<span class="sort-tag" onclick="autoSortHand()">自动排序</span>`;
     labelHTML += `<span class="sort-tag" onclick="toggleSortMode()">完成排序</span>`;
   } else if (s.myHand.length > 1) {
     labelHTML += `<span class="sort-link" onclick="toggleSortMode()">排序</span>`;
@@ -1293,8 +1350,12 @@ function renderGame(s) {
     } else if (s.phase === 'first_play') {
       aa.innerHTML = `<div class="wait-hint">${s.currentPlayer === myId ? '请打出一张牌' : '等待玩家A出牌...'}</div>`;
     } else if (s.phase === 'playing') {
-      const cur = s.players[s.currentPlayer];
-      aa.innerHTML = `<div class="wait-hint">${cur ? cur.name + ' 出牌中...' : '等待中...'}</div>`;
+      if (isMyTurn && s.actions.length === 0) {
+        aa.innerHTML = `<div class="wait-hint">无可用操作，等待系统处理...</div>`;
+      } else {
+        const cur = s.players[s.currentPlayer];
+        aa.innerHTML = `<div class="wait-hint">${cur ? cur.name + ' 出牌中...' : '等待中...'}</div>`;
+      }
     } else { aa.innerHTML = ''; }
     return;
   }
