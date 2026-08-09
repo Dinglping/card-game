@@ -75,6 +75,14 @@ input{padding:10px;border:1px solid #d0d5dd;border-radius:6px;font-size:14px;wid
 .hand-card .rank{font-size:15px}
 .hand-card .drawn-mark{position:absolute;top:-4px;right:-4px;width:14px;height:14px;background:#0052D9;border-radius:50%;font-size:8px;color:#fff;display:flex;align-items:center;justify-content:center}
 
+/* 手牌排序模式 */
+.hand-card.sort-mode{border-color:#7b61ff;box-shadow:0 0 6px rgba(123,97,255,.3)}
+.sort-btns{display:flex;justify-content:space-between;width:100%;margin-top:2px}
+.sort-btn{font-size:10px;color:#7b61ff;cursor:pointer;padding:0 4px;user-select:none;-webkit-tap-highlight-color:transparent}
+.sort-btn:active{opacity:.5}
+.sort-link{font-size:11px;color:#7b61ff;cursor:pointer;text-decoration:underline;padding:0 4px}
+.sort-tag{font-size:11px;color:#fff;background:#7b61ff;padding:1px 8px;border-radius:3px;cursor:pointer}
+
 /* 动作区 */
 .actions{display:flex;flex-wrap:wrap;gap:6px;padding:8px 0;justify-content:center}
 .actions button{padding:8px 14px;font-size:13px}
@@ -85,6 +93,7 @@ input{padding:10px;border:1px solid #d0d5dd;border-radius:6px;font-size:14px;wid
 .btn-dig{background:#ed7b00}
 .btn-declare{background:#e60012}
 .btn-skip{background:#999}
+.btn-play{background:#0052D9}
 
 /* 游戏结束 */
 #gameover{display:none;padding:20px;text-align:center}
@@ -550,25 +559,27 @@ function getAvailableActions(g, idx) {
     actions.push({action:'playFirst', label:'选择一张牌打出'});
   }
   else if (g.phase === 'playing' && g.currentPlayer === idx) {
-    if (g.subState === null) {
-      if (g.tableCard) {
-        const wr = canWinWith(player, g.tableCard);
-        if (wr.canWin) actions.push({action:'win', label:'胡牌', fan:wr.fan});
-        if (hasGrabPair(player.hand, g.tableCard)) actions.push({action:'grab', label:'抓牌'});
-        if (player.hand.length >= 2) {
-          const eatable = findEatable(player.hand, g.tableCard);
-          for (const c of eatable) actions.push({action:'eat', cardId:c.id, label:'吃 '+SUITS[c.suit]+rankLabel(c.rank)});
-        }
-        if (g.deck.length > 0) actions.push({action:'flip', label:'翻牌'});
+    // 所有子状态下，只要桌上有牌都可以检查胡/抓/吃
+    if (g.tableCard) {
+      const wr = canWinWith(player, g.tableCard);
+      if (wr.canWin) actions.push({action:'win', label:'胡牌', fan:wr.fan});
+      if (hasGrabPair(player.hand, g.tableCard)) actions.push({action:'grab', label:'抓牌'});
+      if (player.hand.length >= 1) {
+        const eatable = findEatable(player.hand, g.tableCard);
+        for (const c of eatable) actions.push({action:'eat', cardId:c.id, label:'吃 '+SUITS[c.suit]+rankLabel(c.rank)});
       }
+    }
+    if (g.subState === null) {
+      if (g.deck.length > 0) actions.push({action:'flip', label:'翻牌'});
     } else if (g.subState === 'after_grab') {
-      const wr = canWinWith(player, null);
-      if (wr.canWin) actions.push({action:'winGrab', label:'抓轴胡', fan:wr.fan});
+      const wr2 = canWinWith(player, null);
+      if (wr2.canWin) actions.push({action:'winGrab', label:'抓轴胡', fan:wr2.fan});
       if (canDig(player)) actions.push({action:'dig', label:'扒'});
       actions.push({action:'skipDig', label:'不扒，出牌'});
     } else if (g.subState === 'must_play') {
       actions.push({action:'play', label:'选择一张牌打出'});
     }
+    // must_play 状态下，如果有吃/抓按钮，也需要出牌选项；如果没有则只有must_play
   }
   return actions;
 }
@@ -620,6 +631,41 @@ let curState = null;
 let myId = -1;
 let cardSelectMode = null;
 let imReady = false;
+let sortMode = false; // 排序模式开关
+let handOrder = [];   // 本地手牌排序顺序（card.id 数组）
+
+// 按 handOrder 排序手牌视图
+function sortHand(hand) {
+  if (handOrder.length === 0) return hand;
+  return hand.slice().sort((a, b) => {
+    const ia = handOrder.indexOf(a.id);
+    const ib = handOrder.indexOf(b.id);
+    if (ia === -1 && ib === -1) return 0;
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
+}
+
+// 切换排序模式
+function toggleSortMode() {
+  sortMode = !sortMode;
+  // 进入排序模式时，用当前手牌顺序初始化 handOrder
+  if (sortMode && curState && curState.myHand) {
+    handOrder = curState.myHand.map(c => c.id);
+  }
+  if (curState) renderGame(curState);
+}
+
+// 移动手牌位置
+function moveCard(cardId, dir) {
+  const idx = handOrder.indexOf(cardId);
+  if (idx < 0) return;
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= handOrder.length) return;
+  [handOrder[idx], handOrder[newIdx]] = [handOrder[newIdx], handOrder[idx]];
+  if (curState) renderGame(curState);
+}
 
 function showLoading(text) {
   document.getElementById('loading').style.display = 'flex';
@@ -1014,8 +1060,11 @@ function render(s) {
     lobby.style.display = 'none'; gameDiv.style.display = 'block'; over.style.display = 'none';
 
     // 先设置 cardSelectMode（必须在 renderGame 之前，renderGame 依赖它）
+    // 只有当除了 play/playFirst 之外没有其他可选动作时，才直接进入选牌模式
+    // 否则先显示按钮列表，用户点"打出"按钮后再进入选牌
+    const nonPlayActions = s.actions.filter(a => a.action !== 'play' && a.action !== 'playFirst' && !a.auto);
     const needPlay = s.actions.some(a => a.action === 'play' || a.action === 'playFirst');
-    if (needPlay && s.currentPlayer === myId) {
+    if (needPlay && s.currentPlayer === myId && nonPlayActions.length === 0) {
       cardSelectMode = s.actions.find(a => a.action === 'play') ? 'play' : 'playFirst';
     } else {
       cardSelectMode = null;
@@ -1112,6 +1161,11 @@ function renderGame(s) {
   const hl = document.getElementById('handLabel');
   let labelHTML = `<span>我的手牌 (${s.myHand.length}张)</span>`;
   if (s.lastDrawn) labelHTML += `<span class="drawn-tag">刚摸: ${s.lastDrawn.label}${s.lastDrawn.suitChar}</span>`;
+  if (sortMode) {
+    labelHTML += `<span class="sort-tag" onclick="toggleSortMode()">完成排序</span>`;
+  } else if (s.myHand.length > 1) {
+    labelHTML += `<span class="sort-link" onclick="toggleSortMode()">排序</span>`;
+  }
   hl.innerHTML = labelHTML;
 
   const hr = document.getElementById('handRow');
@@ -1122,10 +1176,14 @@ function renderGame(s) {
   else if (s.phase === 'a_baogi') isMyTurn = (myId === 0);
   else isMyTurn = (s.currentPlayer === myId);
   const canPlay = cardSelectMode !== null;
-  hr.innerHTML = s.myHand.map(c => {
+  const displayHand = sortMode ? sortHand(s.myHand) : s.myHand;
+  hr.innerHTML = displayHand.map(c => {
     const color = (c.suit === 1 || c.suit === 2) ? 'red' : 'black';
-    const playable = canPlay ? 'playable' : '';
+    const playable = (canPlay && !sortMode) ? 'playable' : '';
     const drawnMark = s.lastDrawn && c.id === s.lastDrawn.id ? '<span class="drawn-mark">★</span>' : '';
+    if (sortMode) {
+      return `<div class="hand-card ${color} sort-mode" data-id="${c.id}">${drawnMark}<span class="rank">${c.label}</span><span class="suit">${c.suitChar}</span><div class="sort-btns"><span class="sort-btn sort-left" onclick="event.stopPropagation();moveCard(${c.id},-1)">◀</span><span class="sort-btn sort-right" onclick="event.stopPropagation();moveCard(${c.id},1)">▶</span></div></div>`;
+    }
     return `<div class="hand-card ${color} ${playable}" data-id="${c.id}">${drawnMark}<span class="rank">${c.label}</span><span class="suit">${c.suitChar}</span></div>`;
   }).join('');
 
@@ -1176,6 +1234,7 @@ function renderGame(s) {
       else if (a.action === 'flip') cls = 'btn-flip';
       else if (a.action === 'dig') cls = 'btn-dig';
       else if (a.action === 'declareBaogi') cls = 'btn-declare';
+      else if (a.action === 'play' || a.action === 'playFirst') cls = 'btn-play';
       else if (a.action === 'skipSteal' || a.action === 'skipBaogi' || a.action === 'skipDig') cls = 'btn-skip';
       const fanInfo = a.fan != null ? ` (${a.fan===0?'小胡':a.fan>=3?'满贯':a.fan+'番'})` : '';
       btns += `<button class="${cls}" data-action='${JSON.stringify(a)}'>${a.label}${fanInfo}</button>`;
@@ -1187,6 +1246,14 @@ function renderGame(s) {
       el.onclick = () => {
         const action = JSON.parse(el.dataset.action);
         const { action: act, cardId, rank } = action;
+        // play/playFirst 需要先进入选牌模式
+        if (act === 'play' || act === 'playFirst') {
+          cardSelectMode = act;
+          // 重新渲染手牌区（显示可点击状态）和动作区（显示"点击手牌打出"）
+          const curS = curState;
+          renderGame(curS);
+          return;
+        }
         const msg = { action: act };
         if (cardId != null) msg.cardId = cardId;
         if (rank != null) msg.rank = rank;
