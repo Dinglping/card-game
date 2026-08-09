@@ -1,0 +1,1188 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<link rel="icon" href="data:,">
+<title>朋友棋牌</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,system-ui,sans-serif;background:#f0f2f5;color:#333;max-width:500px;margin:0 auto;min-height:100vh;font-size:14px}
+button{cursor:pointer;border:none;border-radius:6px;padding:10px 16px;font-size:14px;background:#0052D9;color:#fff;transition:opacity .15s}
+button:active{opacity:.7}
+button:disabled{background:#ccc;cursor:default}
+input{padding:10px;border:1px solid #d0d5dd;border-radius:6px;font-size:14px;width:100%}
+.label{font-size:12px;color:#888;margin-bottom:4px}
+
+/* 加载页 */
+#loading{position:fixed;inset:0;background:#f0f2f5;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;gap:12px}
+#loading .spinner{width:32px;height:32px;border:3px solid #d0d5dd;border-top-color:#0052D9;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* 大厅 */
+#lobby{padding:20px;display:flex;flex-direction:column;gap:16px;min-height:100vh;justify-content:center}
+#lobby h1{text-align:center;font-size:22px;color:#0052D9}
+.lobby-card{background:#fff;border-radius:10px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.lobby-card h3{margin-bottom:12px;font-size:15px}
+.lobby-row{display:flex;gap:8px;margin-top:8px}
+.lobby-row input{flex:1}
+.room-info{text-align:center;padding:12px;background:#e8f0fe;border-radius:8px;font-size:13px;color:#0052D9}
+.player-list{list-style:none;margin:8px 0}
+.player-list li{padding:6px 0;border-bottom:1px solid #f0f0f0;font-size:13px}
+.player-list li:last-child{border:none}
+.host-tag{background:#0052D9;color:#fff;padding:1px 6px;border-radius:3px;font-size:11px;margin-left:4px}
+.wait-hint{text-align:center;color:#999;font-size:12px;padding:8px}
+
+/* 游戏区 */
+#game{display:none;padding:8px;min-height:100vh}
+.opponents{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:6px}
+.opp{background:#fff;border-radius:8px;padding:6px 10px;font-size:12px;box-shadow:0 1px 2px rgba(0,0,0,.05);min-width:80px;text-align:center;max-width:140px}
+.opp.active{border:2px solid #0052D9}
+.opp-name{font-weight:600;font-size:13px}
+.opp-cards{color:#888;font-size:11px;margin:2px 0}
+.opp-baogi{color:#e60012;font-size:10px;font-weight:600}
+.opp-front{display:flex;flex-wrap:wrap;gap:2px;justify-content:center;margin-top:3px}
+.mini-card{display:inline-flex;align-items:center;justify-content:center;width:20px;height:28px;border-radius:3px;background:#fff;border:1px solid #ddd;font-size:10px;font-weight:700;line-height:1}
+.mini-card.red{color:#e60012}
+.mini-card.black{color:#333}
+.mini-group{display:inline-flex;gap:1px;border:1px solid #c0c8d0;border-radius:4px;padding:1px;background:#f8f9fa}
+.group-tag{font-size:8px;color:#888;text-align:center}
+
+/* 桌面区 */
+.table-area{background:#fff;border-radius:10px;padding:12px;margin:6px 0;box-shadow:0 1px 3px rgba(0,0,0,.06);text-align:center;min-height:80px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}
+.table-card{display:inline-flex;align-items:center;justify-content:center;width:48px;height:68px;border-radius:6px;background:#fff;border:2px solid #0052D9;font-size:20px;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,.12)}
+.table-card.red{color:#e60012}
+.table-card.black{color:#333}
+.table-empty{color:#999;font-size:12px}
+.table-source{font-size:10px;color:#888}
+.messages{font-size:11px;color:#666;max-height:70px;overflow-y:auto;text-align:left;width:100%;padding:4px 8px;background:#f8f9fa;border-radius:6px}
+.messages div{padding:1px 0;line-height:1.4}
+
+/* 我的手牌 */
+.my-area{margin-top:6px}
+.my-front{background:#e8f0fe;border-radius:8px;padding:6px;margin-bottom:6px;display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.my-front-label{font-size:11px;color:#666;width:100%;margin-bottom:2px}
+.front-group{display:inline-flex;gap:1px;border:1px solid #b0c4de;border-radius:4px;padding:2px;background:#fff}
+.hand-label{font-size:12px;color:#666;margin-bottom:4px;display:flex;justify-content:space-between}
+.hand-label .drawn-tag{color:#0052D9;font-weight:600}
+.hand-row{display:flex;gap:4px;overflow-x:auto;padding:4px 0;-webkit-overflow-scrolling:touch}
+.hand-card{flex-shrink:0;display:flex;flex-direction:column;align-items:center;justify-content:center;width:42px;height:62px;border-radius:6px;background:#fff;border:1.5px solid #d0d5dd;font-size:16px;font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.08);position:relative;transition:transform .1s}
+.hand-card.red{color:#e60012;border-color:#ffb0b0}
+.hand-card.black{color:#333;border-color:#c0c8d0}
+.hand-card.playable{border-color:#0052D9;box-shadow:0 0 6px rgba(0,82,217,.3)}
+.hand-card.playable:active{transform:scale(.92)}
+.hand-card .suit{font-size:13px}
+.hand-card .rank{font-size:15px}
+.hand-card .drawn-mark{position:absolute;top:-4px;right:-4px;width:14px;height:14px;background:#0052D9;border-radius:50%;font-size:8px;color:#fff;display:flex;align-items:center;justify-content:center}
+
+/* 动作区 */
+.actions{display:flex;flex-wrap:wrap;gap:6px;padding:8px 0;justify-content:center}
+.actions button{padding:8px 14px;font-size:13px}
+.btn-win{background:#e60012}
+.btn-grab{background:#7b61ff}
+.btn-eat{background:#00a870}
+.btn-flip{background:#999}
+.btn-dig{background:#ed7b00}
+.btn-declare{background:#e60012}
+.btn-skip{background:#999}
+
+/* 游戏结束 */
+#gameover{display:none;padding:20px;text-align:center}
+#gameover h2{color:#0052D9;margin-bottom:12px}
+.score-table{width:100%;border-collapse:collapse;margin:12px 0}
+.score-table th,.score-table td{padding:8px;border-bottom:1px solid #eee;font-size:14px}
+.score-table th{color:#888;font-weight:600;font-size:12px}
+.score-pos{color:#00a870;font-weight:700}
+.score-neg{color:#e60012;font-weight:700}
+
+.turn-hint{text-align:center;font-size:12px;color:#0052D9;padding:4px;font-weight:600}
+.wait-hint{text-align:center;font-size:12px;color:#999;padding:4px}
+</style>
+</head>
+<body>
+
+<!-- 加载页 -->
+<div id="loading">
+  <div class="spinner"></div>
+  <div id="loadingText" style="font-size:13px;color:#888">正在加载游戏组件...</div>
+</div>
+
+<!-- 连接状态 -->
+<div id="connStatus" style="position:fixed;top:0;left:0;right:0;background:#e8f0fe;color:#0052D9;text-align:center;font-size:12px;padding:2px;z-index:999;display:none"></div>
+
+<!-- 大厅 -->
+<div id="lobby" style="display:none">
+  <h1>朋友棋牌</h1>
+  <div class="lobby-card">
+    <h3>创建房间</h3>
+    <div class="label">你的名字</div>
+    <input id="myName" placeholder="输入名字" maxlength="8">
+    <div style="margin-top:8px"><button onclick="createRoom()" style="width:100%">创建房间</button></div>
+  </div>
+  <div class="lobby-card">
+    <h3>加入房间</h3>
+    <div class="label">房间号</div>
+    <input id="joinRoom" placeholder="4位数字" maxlength="4" inputmode="numeric">
+    <div class="lobby-row">
+      <button onclick="joinRoom()" style="flex:1">加入</button>
+    </div>
+  </div>
+  <div id="roomInfo" style="display:none" class="lobby-card">
+    <div class="room-info" id="roomDisplay"></div>
+    <h3 style="margin-top:12px">玩家列表</h3>
+    <ul class="player-list" id="playerList"></ul>
+    <div id="hostControls">
+      <button onclick="startGame()" style="width:100%">开始游戏</button>
+    </div>
+    <div id="guestWait" class="wait-hint" style="display:none">等待房主开始游戏...</div>
+  </div>
+</div>
+
+<!-- 游戏区 -->
+<div id="game">
+  <div class="opponents" id="opponents"></div>
+  <div class="table-area" id="tableArea"></div>
+  <div class="messages" id="msgArea"></div>
+  <div class="my-area">
+    <div class="my-front" id="myFront" style="display:none"></div>
+    <div class="hand-label" id="handLabel"></div>
+    <div class="hand-row" id="handRow"></div>
+    <div class="actions" id="actionArea"></div>
+  </div>
+</div>
+
+<!-- 游戏结束 -->
+<div id="gameover">
+  <h2 id="goTitle">游戏结束</h2>
+  <div id="goDetail" style="font-size:14px;color:#666;margin-bottom:8px"></div>
+  <table class="score-table" id="scoreTable"></table>
+  <button onclick="restart()" style="margin-top:8px">再来一局</button>
+</div>
+
+<script src="chat-sdk.js"></script>
+<script src="lib-sig.js"></script>
+<script>
+// ========== 常量 ==========
+const SDKAPPID = 1600156138;
+const SECRETKEY = '5019932f255fa52f10ff36ded65a4969038e1fc2736fdf38f3f52e31890616b7';
+const SUITS = ['♠', '♥', '♦', '♣'];
+const RANK_NAMES = ['', 'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+const RANK_LABELS = {1:'A', 11:'J', 12:'Q', 13:'K'};
+const COMP_PAIRS = [[1,13],[2,12],[3,11],[4,10],[5,9],[6,8]];
+const DEAL_COUNTS = [8, 7, 7, 5];
+
+function rankLabel(r) { return RANK_LABELS[r] || String(r); }
+
+// ========== 牌堆工具 ==========
+function createDeck() {
+  const deck = [];
+  for (let s = 0; s < 4; s++)
+    for (let r = 1; r <= 13; r++)
+      deck.push({ id: s*13+r-1, rank: r, suit: s });
+  return deck;
+}
+function shuffle(arr) {
+  for (let i = arr.length-1; i > 0; i--) {
+    const j = Math.floor(Math.random()*(i+1));
+    [arr[i],arr[j]] = [arr[j],arr[i]];
+  }
+  return arr;
+}
+
+// ========== 胡牌检测 ==========
+function countByRank(cards) {
+  const c = new Array(14).fill(0);
+  for (const card of cards) c[card.rank]++;
+  return c;
+}
+function checkWin(counts) {
+  let totalFan = 0, allValid = true;
+  for (const [r1,r2] of COMP_PAIRS) {
+    let best = -1;
+    for (const g1 of [0,3,4]) {
+      if (g1 > counts[r1]) continue;
+      for (const g2 of [0,3,4]) {
+        if (g2 > counts[r2]) continue;
+        if (counts[r1]-g1 === counts[r2]-g2) {
+          let fan = (g1===3?1:0)+(g1===4?2:0)+(g2===3?1:0)+(g2===4?2:0);
+          if (fan > best) best = fan;
+        }
+      }
+    }
+    if (best < 0) { allValid = false; break; }
+    totalFan += best;
+  }
+  if (allValid) {
+    let best7 = -1;
+    for (const g7 of [0,3,4]) {
+      if (g7 > counts[7]) continue;
+      if ((counts[7]-g7)%2 === 0) {
+        let fan = (g7===3?1:0)+(g7===4?2:0);
+        if (fan > best7) best7 = fan;
+      }
+    }
+    if (best7 < 0) return { canWin:false, fan:0 };
+    totalFan += best7;
+  }
+  if (!allValid) return { canWin:false, fan:0 };
+  return { canWin:true, fan:Math.min(totalFan,3) };
+}
+function getAllCards(player, tableCard) {
+  const cards = [...player.hand];
+  for (const g of player.front) cards.push(...g.cards);
+  if (tableCard) cards.push(tableCard);
+  return cards;
+}
+function canWinWith(player, tableCard) {
+  return checkWin(countByRank(getAllCards(player, tableCard)));
+}
+function canBaogi(hand) {
+  const counts = countByRank(hand);
+  for (let r = 1; r <= 13; r++) {
+    if (counts[r] > 0) {
+      counts[r]--;
+      if (checkWin(counts).canWin) { counts[r]++; return true; }
+      counts[r]++;
+    }
+  }
+  return false;
+}
+function findTriples(hand) {
+  const counts = countByRank(hand);
+  const triples = [];
+  for (let r = 1; r <= 13; r++) if (counts[r] >= 3) triples.push(r);
+  return triples;
+}
+function findEatable(hand, tableCard) {
+  const target = 14 - tableCard.rank;
+  return hand.filter(c => c.rank === target);
+}
+function hasGrabPair(hand, tableCard) {
+  return hand.filter(c => c.rank === tableCard.rank).length >= 2;
+}
+function canDig(player) {
+  if (!player.lastDrawn) return false;
+  for (const g of player.front) {
+    if (g.type !== '吃' && g.cards[0].rank === player.lastDrawn.rank) return true;
+  }
+  return false;
+}
+
+// ========== 游戏状态（房主端）==========
+let game = null;
+
+function createGame(roomId) {
+  return {
+    roomId, phase:'lobby', players:[],
+    deck:[], tableCard:null, tableSource:null,
+    currentPlayer:0, stealTurn:0, declareTurn:0, subState:null,
+    messages:[], winner:null, scores:null, fangpaoId:null, winType:null,
+  };
+}
+function dealCards(g) {
+  g.deck = shuffle(createDeck());
+  const n = g.players.length;
+  for (let i = 0; i < n; i++) {
+    g.players[i].hand = g.deck.splice(0, DEAL_COUNTS[i]);
+    g.players[i].front = [];
+    g.players[i].stealDone = false;
+    g.players[i].baogi = false;
+    g.players[i].lastDrawn = null;
+    g.players[i].winFan = 0;
+  }
+}
+function addMsg(g, msg) {
+  g.messages.push(msg);
+  if (g.messages.length > 30) g.messages.shift();
+}
+function nextStealTurn(g) {
+  const n = g.players.length;
+  do {
+    g.stealTurn++;
+    if (g.stealTurn >= n) { startDeclaring(g); return; }
+  } while (findTriples(g.players[g.stealTurn].hand).length === 0);
+  broadcastViews(g);
+}
+function startDeclaring(g) {
+  g.phase = 'declaring';
+  g.declareTurn = -1;
+  const a = g.players[0];
+  const tianhu = checkWin(countByRank(getAllCards(a, null)));
+  if (tianhu.canWin) {
+    g.winner = 0; g.winType = 'tianhu';
+    g.players[0].winFan = tianhu.fan;
+    endGame(g); return;
+  }
+  g.declareTurn = 0;
+  advanceDeclare(g);
+}
+function advanceDeclare(g) {
+  const n = g.players.length;
+  while (g.declareTurn < n) {
+    if (canBaogi(g.players[g.declareTurn].hand)) { broadcastViews(g); return; }
+    g.declareTurn++;
+  }
+  startPlaying(g);
+}
+function startPlaying(g) {
+  g.phase = 'first_play'; g.currentPlayer = 0; g.subState = null;
+  addMsg(g, '偷起/宣告阶段结束，玩家A先出牌');
+  broadcastViews(g);
+}
+function startNormalPlay(g) {
+  g.phase = 'playing'; g.currentPlayer = 1; g.subState = null;
+  broadcastViews(g);
+}
+function nextPlayTurn(g) {
+  const n = g.players.length;
+  g.currentPlayer = (g.currentPlayer + 1) % n;
+  g.subState = null;
+  if (g.deck.length === 0 && g.tableCard) {
+    const acts = getAvailableActions(g, g.currentPlayer);
+    const hasRealAction = acts.some(a => !a.auto);
+    if (!hasRealAction) {
+      addMsg(g, '牌堆已空，本局作废');
+      g.phase = 'ended'; g.winner = -1; g.scores = {};
+      for (let i = 0; i < n; i++) g.scores[i] = 0;
+      broadcastViews(g); return;
+    }
+  }
+  broadcastViews(g);
+}
+function checkDeckEmpty(g) {
+  if (g.deck.length === 0) {
+    addMsg(g, '牌堆已空，本局作废');
+    g.phase = 'ended'; g.winner = -1; g.scores = {};
+    for (let i = 0; i < g.players.length; i++) g.scores[i] = 0;
+    broadcastViews(g); return true;
+  }
+  return false;
+}
+function endGame(g) {
+  g.phase = 'ended';
+  const winner = g.players[g.winner];
+  const fan = winner.winFan || 0;
+  let base = fan === 0 ? 1 : fan === 1 ? 2 : fan === 2 ? 4 : 8;
+  if (winner.baogi) base += 1;
+  g.scores = {};
+  const n = g.players.length;
+  const losers = n - 1;
+  if (g.winType === 'fangpao') {
+    for (let i = 0; i < n; i++) {
+      if (i === g.winner) g.scores[i] = base * losers;
+      else if (i === g.fangpaoId) g.scores[i] = -base * losers;
+      else g.scores[i] = 0;
+    }
+  } else {
+    for (let i = 0; i < n; i++) {
+      if (i === g.winner) g.scores[i] = base * losers;
+      else g.scores[i] = -base;
+    }
+  }
+  const fanName = fan === 0 ? '小胡' : fan >= 3 ? '满贯' : fan + '番';
+  const baogiName = winner.baogi ? '+爆起' : '';
+  addMsg(g, winner.name + ' 胡牌！' + fanName + baogiName + ' 得' + base * losers + '分');
+  broadcastViews(g);
+}
+
+// ========== 动作处理（房主端）==========
+function handleAction(g, idx, msg) {
+  const player = g.players[idx];
+  const a = msg.action;
+  if (a === 'steal') {
+    const rank = msg.rank;
+    const triple = player.hand.filter(c => c.rank === rank);
+    if (triple.length < 3) return;
+    player.hand = player.hand.filter(c => c.rank !== rank);
+    player.front.push({ cards: triple.slice(0,3), type: '偷' });
+    if (g.deck.length > 0) player.hand.push(g.deck.shift());
+    player.stealDone = true;
+    addMsg(g, player.name + ' 偷起了三个' + rankLabel(rank));
+    nextStealTurn(g);
+  }
+  else if (a === 'skipSteal') {
+    player.stealDone = true;
+    nextStealTurn(g);
+  }
+  else if (a === 'declareBaogi') {
+    player.baogi = true;
+    addMsg(g, player.name + ' 宣布爆起');
+    if (g.phase === 'a_baogi') { startNormalPlay(g); return; }
+    g.declareTurn++;
+    advanceDeclare(g);
+  }
+  else if (a === 'skipBaogi') {
+    if (g.phase === 'a_baogi') { startNormalPlay(g); return; }
+    g.declareTurn++;
+    advanceDeclare(g);
+  }
+  else if (a === 'playFirst') {
+    const cardId = msg.cardId;
+    const ci = player.hand.findIndex(c => c.id === cardId);
+    if (ci < 0) return;
+    const card = player.hand.splice(ci, 1)[0];
+    g.tableCard = card; g.tableSource = 'play';
+    addMsg(g, player.name + ' 打出 ' + SUITS[card.suit] + rankLabel(card.rank));
+    if (canBaogi(player.hand)) { g.phase = 'a_baogi'; broadcastViews(g); }
+    else startNormalPlay(g);
+  }
+  else if (a === 'win') {
+    const result = canWinWith(player, g.tableCard);
+    if (!result.canWin) return;
+    player.winFan = result.fan;
+    g.winner = idx;
+    if (g.tableSource === 'play') {
+      g.winType = 'fangpao';
+      g.fangpaoId = (idx - 1 + g.players.length) % g.players.length;
+    } else { g.winType = 'deck'; }
+    endGame(g);
+  }
+  else if (a === 'grab') {
+    if (!g.tableCard || !hasGrabPair(player.hand, g.tableCard)) return;
+    const rank = g.tableCard.rank;
+    let removed = 0; const pair = [];
+    player.hand = player.hand.filter(c => {
+      if (c.rank === rank && removed < 2) { removed++; pair.push(c); return false; }
+      return true;
+    });
+    player.front.push({ cards: [...pair, g.tableCard], type: '抓' });
+    g.tableCard = null;
+    if (checkDeckEmpty(g)) return;
+    const drawn = g.deck.shift();
+    player.hand.push(drawn); player.lastDrawn = drawn;
+    addMsg(g, player.name + ' 抓了三个' + rankLabel(rank) + '，摸了一张牌');
+    const winResult = canWinWith(player, null);
+    if (winResult.canWin) { g.subState = 'after_grab'; addMsg(g, player.name + ' 可以抓轴胡！'); broadcastViews(g); }
+    else if (canDig(player)) { g.subState = 'after_grab'; broadcastViews(g); }
+    else { g.subState = 'must_play'; broadcastViews(g); }
+  }
+  else if (a === 'dig') {
+    if (!player.lastDrawn || !canDig(player)) return;
+    const mg = player.front.find(g2 => g2.type !== '吃' && g2.cards[0].rank === player.lastDrawn.rank);
+    player.hand = player.hand.filter(c => c.id !== player.lastDrawn.id);
+    mg.cards.push(player.lastDrawn); mg.type = '扒';
+    addMsg(g, player.name + ' 扒了 ' + SUITS[player.lastDrawn.suit] + rankLabel(player.lastDrawn.rank));
+    if (checkDeckEmpty(g)) return;
+    const drawn = g.deck.shift();
+    player.hand.push(drawn); player.lastDrawn = drawn;
+    const winResult = canWinWith(player, null);
+    if (winResult.canWin) { g.subState = 'after_grab'; broadcastViews(g); }
+    else if (canDig(player)) { g.subState = 'after_grab'; broadcastViews(g); }
+    else { g.subState = 'must_play'; broadcastViews(g); }
+  }
+  else if (a === 'skipDig' || a === 'skipPlay') {
+    g.subState = 'must_play';
+    broadcastViews(g);
+  }
+  else if (a === 'eat') {
+    const cardId = msg.cardId;
+    const ci = player.hand.findIndex(c => c.id === cardId);
+    if (ci < 0) return;
+    if (!g.tableCard || 14 - g.tableCard.rank !== player.hand[ci].rank) return;
+    const tc = g.tableCard;
+    const eatCard = player.hand.splice(ci, 1)[0];
+    player.front.push({ cards: [eatCard, tc], type: '吃' });
+    g.tableCard = null;
+    addMsg(g, player.name + ' 吃了 ' + SUITS[eatCard.suit] + rankLabel(eatCard.rank) + '+' + SUITS[tc.suit] + rankLabel(tc.rank));
+    g.subState = 'must_play';
+    broadcastViews(g);
+  }
+  else if (a === 'flip') {
+    if (g.deck.length === 0) {
+      addMsg(g, '牌堆已空，本局作废');
+      g.phase = 'ended'; g.winner = -1; g.scores = {};
+      for (let i = 0; i < g.players.length; i++) g.scores[i] = 0;
+      broadcastViews(g); return;
+    }
+    const flipped = g.deck.shift();
+    g.tableCard = flipped; g.tableSource = 'flip';
+    addMsg(g, player.name + ' 翻出 ' + SUITS[flipped.suit] + rankLabel(flipped.rank));
+    nextPlayTurn(g);
+  }
+  else if (a === 'play') {
+    const cardId = msg.cardId;
+    const ci = player.hand.findIndex(c => c.id === cardId);
+    if (ci < 0) return;
+    const card = player.hand.splice(ci, 1)[0];
+    g.tableCard = card; g.tableSource = 'play';
+    player.lastDrawn = null;
+    addMsg(g, player.name + ' 打出 ' + SUITS[card.suit] + rankLabel(card.rank));
+    nextPlayTurn(g);
+  }
+  else if (a === 'winGrab') {
+    const result = canWinWith(player, null);
+    if (!result.canWin) return;
+    player.winFan = result.fan;
+    g.winner = idx; g.winType = 'grab';
+    addMsg(g, player.name + ' 抓轴胡！');
+    endGame(g);
+  }
+}
+
+// ========== 状态视图 ==========
+function getAvailableActions(g, idx) {
+  const player = g.players[idx];
+  const actions = [];
+  if (g.phase === 'stealing' && g.stealTurn === idx) {
+    const triples = findTriples(player.hand);
+    if (triples.length === 0) return [{action:'skipSteal', auto:true}];
+    for (const r of triples) actions.push({action:'steal', rank:r, label:'偷起 三个'+rankLabel(r)});
+    actions.push({action:'skipSteal', label:'忽略'});
+  }
+  else if (g.phase === 'declaring' && g.declareTurn === idx) {
+    if (canBaogi(player.hand)) { actions.push({action:'declareBaogi', label:'爆起'}); actions.push({action:'skipBaogi', label:'忽略'}); }
+    else return [{action:'skipBaogi', auto:true}];
+  }
+  else if (g.phase === 'a_baogi' && idx === 0) {
+    if (canBaogi(player.hand)) { actions.push({action:'declareBaogi', label:'爆起'}); actions.push({action:'skipBaogi', label:'忽略'}); }
+    else return [{action:'skipBaogi', auto:true}];
+  }
+  else if (g.phase === 'first_play' && g.currentPlayer === idx) {
+    actions.push({action:'playFirst', label:'选择一张牌打出'});
+  }
+  else if (g.phase === 'playing' && g.currentPlayer === idx) {
+    if (g.subState === null) {
+      if (g.tableCard) {
+        const wr = canWinWith(player, g.tableCard);
+        if (wr.canWin) actions.push({action:'win', label:'胡牌', fan:wr.fan});
+        if (hasGrabPair(player.hand, g.tableCard)) actions.push({action:'grab', label:'抓牌'});
+        if (player.hand.length >= 2) {
+          const eatable = findEatable(player.hand, g.tableCard);
+          for (const c of eatable) actions.push({action:'eat', cardId:c.id, label:'吃 '+SUITS[c.suit]+rankLabel(c.rank)});
+        }
+        if (g.deck.length > 0) actions.push({action:'flip', label:'翻牌'});
+      }
+    } else if (g.subState === 'after_grab') {
+      const wr = canWinWith(player, null);
+      if (wr.canWin) actions.push({action:'winGrab', label:'抓轴胡', fan:wr.fan});
+      if (canDig(player)) actions.push({action:'dig', label:'扒'});
+      actions.push({action:'skipDig', label:'不扒，出牌'});
+    } else if (g.subState === 'must_play') {
+      actions.push({action:'play', label:'选择一张牌打出'});
+    }
+  }
+  return actions;
+}
+
+function getView(g, idx) {
+  const player = g.players[idx];
+  return {
+    phase: g.phase,
+    roomId: g.roomId,
+    currentPlayer: g.currentPlayer,
+    stealTurn: g.stealTurn,
+    declareTurn: g.declareTurn,
+    tableCard: g.tableCard ? {...g.tableCard, label: rankLabel(g.tableCard.rank), suitChar: SUITS[g.tableCard.suit]} : null,
+    tableSource: g.tableSource,
+    deckSize: g.deck.length,
+    subState: g.subState,
+    myHand: player.hand.map(c => ({...c, label: rankLabel(c.rank), suitChar: SUITS[c.suit]})),
+    myFront: player.front.map(gr => ({
+      type: gr.type,
+      cards: gr.cards.map(c => ({...c, label: rankLabel(c.rank), suitChar: SUITS[c.suit]}))
+    })),
+    lastDrawn: player.lastDrawn ? {...player.lastDrawn, label: rankLabel(player.lastDrawn.rank), suitChar: SUITS[player.lastDrawn.suit]} : null,
+    players: g.players.map((p,i) => ({
+      id:i, name:p.name, handSize:p.hand.length,
+      front: p.front.map(gr => ({
+        type:gr.type,
+        cards: gr.cards.map(c => ({...c, label:rankLabel(c.rank), suitChar:SUITS[c.suit]}))
+      })),
+      stealDone:p.stealDone, baogi:p.baogi, winFan:p.winFan||0,
+      isMe:i===idx, isHost:i===0,
+    })),
+    actions: getAvailableActions(g, idx),
+    messages: g.messages.slice(-12),
+    winner: g.winner,
+    scores: g.scores,
+    winType: g.winType,
+    myId: idx,
+  };
+}
+
+// ========== IM 连接 ==========
+let chat = null;
+let isHost = false;
+let myUserId = '';
+let myName = '';
+let roomCode = '';
+let groupId = '';
+let curState = null;
+let myId = -1;
+let cardSelectMode = null;
+let imReady = false;
+
+function showLoading(text) {
+  document.getElementById('loading').style.display = 'flex';
+  document.getElementById('loadingText').textContent = text;
+}
+function hideLoading() {
+  document.getElementById('loading').style.display = 'none';
+}
+function showConn(text, isErr) {
+  const s = document.getElementById('connStatus');
+  s.style.display = '';
+  s.textContent = text;
+  if (isErr) { s.style.background = '#f8d7da'; s.style.color = '#721c24'; }
+  else { s.style.background = '#e8f0fe'; s.style.color = '#0052D9'; }
+}
+function hideConn() {
+  document.getElementById('connStatus').style.display = 'none';
+}
+
+function initIM() {
+  chat = TencentCloudChat.create({ SDKAppID: SDKAPPID });
+  chat.setLogLevel(1);
+  chat.on(TencentCloudChat.EVENT.SDK_READY, () => {
+    imReady = true;
+    hideConn();
+    onIMReady();
+  });
+  chat.on(TencentCloudChat.EVENT.SDK_NOT_READY, () => {
+    imReady = false;
+    showConn('连接中...', false);
+  });
+  chat.on(TencentCloudChat.EVENT.MESSAGE_RECEIVED, onMessageReceived);
+  chat.on(TencentCloudChat.EVENT.KICKED_OUT, (event) => {
+    showConn('账号在其他设备登录，已被踢下线', true);
+  });
+  chat.on(TencentCloudChat.EVENT.NET_STATE_CHANGE, (event) => {
+    if (event.data.state === TencentCloudChat.TYPES.NET_STATE_CONNECTING)
+      showConn('网络重连中...', false);
+    else if (event.data.state === TencentCloudChat.TYPES.NET_STATE_DISCONNECTED)
+      showConn('网络已断开，正在重连...', true);
+    else hideConn();
+  });
+}
+
+function genUserSig(userId) {
+  const generator = new LibGenerateTestUserSig(SDKAPPID, SECRETKEY, 604800);
+  return generator.genTestUserSig(userId);
+}
+
+function imLogin(userId) {
+  showLoading('正在连接服务器...');
+  const userSig = genUserSig(userId);
+  chat.login({ userID: userId, userSig }).then(() => {
+    // 等待 SDK_READY 事件触发 onIMReady
+  }).catch((err) => {
+    hideLoading();
+    alert('登录失败: ' + (err.message || JSON.stringify(err)));
+  });
+}
+
+// ========== 房主流程 ==========
+function createRoom() {
+  const name = document.getElementById('myName').value.trim() || '玩家A';
+  if (name.length < 1) return alert('请输入名字');
+  isHost = true;
+  myName = name;
+  myUserId = 'h' + Math.floor(Math.random()*9000+1000);
+  roomCode = String(Math.floor(Math.random()*9000+1000));
+  groupId = 'cg' + roomCode;
+  showLoading('正在创建房间...');
+  initIM();
+  imLogin(myUserId);
+}
+
+function onIMReady() {
+  if (isHost) {
+    hostCreateGroup();
+  } else {
+    guestJoinGroup();
+  }
+}
+
+function hostCreateGroup() {
+  showLoading('正在创建房间...');
+  chat.createGroup({
+    type: TencentCloudChat.TYPES.GRP_MEETING,
+    name: '棋牌房间 ' + roomCode,
+    groupID: groupId,
+  }).then((res) => {
+    hideLoading();
+    game = createGame(roomCode);
+    game.players.push({
+      id:0, name:myName, userId:myUserId, hand:[], front:[],
+      stealDone:false, baogi:false, lastDrawn:null, winFan:0,
+    });
+    // 渲染房主自己的大厅
+    myId = 0;
+    curState = { phase:'lobby', roomId:roomCode,
+      players: game.players.map(p => ({name:p.name})), myId:0 };
+    render(curState);
+  }).catch((err) => {
+    hideLoading();
+    // 如果自定义 groupID 失败，用自动生成的方式
+    console.warn('createGroup with custom ID failed, trying auto:', err);
+    chat.createGroup({
+      type: TencentCloudChat.TYPES.GRP_MEETING,
+      name: '棋牌房间 ' + roomCode,
+    }).then((res) => {
+      groupId = res.data.group.groupID;
+      // 从自动生成的 groupID 提取后4位作为房间号展示
+      const tail = groupId.replace(/[^0-9a-zA-Z]/g, '').slice(-4);
+      roomCode = tail;
+      hideLoading();
+      game = createGame(roomCode);
+      game.players.push({
+        id:0, name:myName, userId:myUserId, hand:[], front:[],
+        stealDone:false, baogi:false, lastDrawn:null, winFan:0,
+      });
+      myId = 0;
+      curState = { phase:'lobby', roomId:roomCode,
+        players: game.players.map(p => ({name:p.name})), myId:0 };
+      render(curState);
+    }).catch((err2) => {
+      hideLoading();
+      alert('创建房间失败: ' + (err2.message || JSON.stringify(err2)));
+    });
+  });
+}
+
+function broadcastViews(g) {
+  // 渲染房主自己的视图
+  const hostView = getView(g, 0);
+  curState = hostView;
+  myId = 0;
+  render(hostView);
+  // 发送其他玩家的视图
+  const views = {};
+  for (let i = 1; i < g.players.length; i++) {
+    const p = g.players[i];
+    if (p.userId) views[p.userId] = getView(g, i);
+  }
+  if (Object.keys(views).length > 0) {
+    sendGroupMsg({ type:'views', views: views });
+  }
+}
+
+function broadcastLobby() {
+  // 渲染房主自己的大厅
+  myId = 0;
+  curState = { phase:'lobby', roomId:roomCode,
+    players: game.players.map(p => ({name:p.name})), myId:0 };
+  render(curState);
+  // 发送给其他玩家
+  const views = {};
+  for (let i = 1; i < game.players.length; i++) {
+    const p = game.players[i];
+    if (p.userId) views[p.userId] = { phase:'lobby', roomId:roomCode,
+      players: game.players.map(p2 => ({name:p2.name})), myId:i };
+  }
+  if (Object.keys(views).length > 0) {
+    sendGroupMsg({ type:'lobby_views', views: views });
+  }
+}
+
+function startGame() {
+  if (game.players.length < 2) return alert('至少需要2人');
+  dealCards(game);
+  game.phase = 'stealing';
+  game.stealTurn = 0;
+  while (game.stealTurn < game.players.length &&
+         findTriples(game.players[game.stealTurn].hand).length === 0) {
+    game.players[game.stealTurn].stealDone = true;
+    game.stealTurn++;
+  }
+  if (game.stealTurn >= game.players.length) {
+    startDeclaring(game);
+  } else {
+    addMsg(game, '游戏开始！偷起阶段');
+    broadcastViews(game);
+  }
+}
+
+function restart() {
+  if (!isHost) return;
+  const oldPlayers = game.players.map(p => ({ name:p.name, userId:p.userId }));
+  game = createGame(roomCode);
+  for (const p of oldPlayers) {
+    game.players.push({
+      id: game.players.length, name:p.name, userId:p.userId,
+      hand:[], front:[], stealDone:false, baogi:false, lastDrawn:null, winFan:0,
+    });
+  }
+  broadcastLobby();
+}
+
+// ========== 客人流程 ==========
+function joinRoom() {
+  const name = document.getElementById('myName').value.trim() || '玩家';
+  const code = document.getElementById('joinRoom').value.trim();
+  if (name.length < 1) return alert('请输入名字');
+  if (!code || code.length !== 4) return alert('请输入4位房间号');
+  isHost = false;
+  myName = name;
+  myUserId = 'g' + Math.floor(Math.random()*9000+1000);
+  roomCode = code;
+  groupId = 'cg' + code;
+  showLoading('正在加入房间...');
+  initIM();
+  imLogin(myUserId);
+}
+
+function guestJoinGroup() {
+  showLoading('正在加入房间...');
+  chat.joinGroup({ groupID: groupId }).then((res) => {
+    // 成功加入或已在群组
+    hideLoading();
+    showConn('已连接，正在等待房主响应...', false);
+    sendGroupMsg({ type:'join', userId:myUserId, name:myName });
+    // 5秒后如果没收到房主响应，提示房间不存在
+    setTimeout(() => {
+      if (!curState || curState.phase !== 'lobby') {
+        hideConn();
+        if (!curState) {
+          alert('未收到房主响应，请检查房间号是否正确，或房主是否在线');
+        }
+      }
+    }, 5000);
+  }).catch((err) => {
+    if (err && err.code === 10013) {
+      // 已在群组中，不算错误
+      hideLoading();
+      sendGroupMsg({ type:'join', userId:myUserId, name:myName });
+    } else {
+      hideLoading();
+      const errMsg = err && err.message ? err.message : JSON.stringify(err);
+      alert('加入房间失败: ' + errMsg + '\n请检查房间号是否正确');
+    }
+  });
+}
+
+// ========== 消息收发 ==========
+function sendGroupMsg(obj) {
+  const msg = chat.createCustomMessage({
+    to: groupId,
+    conversationType: TencentCloudChat.TYPES.CONV_GROUP,
+    payload: { data: JSON.stringify(obj), description: obj.type || '', extension: '' },
+  });
+  chat.sendMessage(msg).catch(err => console.warn('sendMessage error:', err));
+}
+
+function onMessageReceived(event) {
+  const msgList = event.data;
+  for (const msg of msgList) {
+    if (msg.conversationType !== TencentCloudChat.TYPES.CONV_GROUP) continue;
+    if (msg.to !== groupId) continue;
+    let payload;
+    try { payload = JSON.parse(msg.payload.data); } catch(e) { continue; }
+    handleMessage(payload);
+  }
+}
+
+function handleMessage(msg) {
+  if (msg.type === 'join' && isHost) {
+    // 新玩家加入
+    if (game && game.phase === 'lobby') {
+      if (game.players.length >= 4) return; // 满了
+      // 去重
+      if (game.players.some(p => p.userId === msg.userId)) return;
+      game.players.push({
+        id: game.players.length, name:msg.name, userId:msg.userId,
+        hand:[], front:[], stealDone:false, baogi:false, lastDrawn:null, winFan:0,
+      });
+      broadcastLobby();
+    }
+  }
+  else if (msg.type === 'action' && isHost) {
+    // 客人发送的游戏动作
+    const idx = game.players.findIndex(p => p.userId === msg.from);
+    if (idx >= 0) {
+      // 自动跳过处理
+      if (msg.action === 'skipSteal' && msg.auto === true) {
+        game.players[idx].stealDone = true;
+        nextStealTurn(game);
+        return;
+      }
+      if (msg.action === 'skipBaogi' && msg.auto === true) {
+        if (game.phase === 'a_baogi') { startNormalPlay(game); return; }
+        game.declareTurn++;
+        advanceDeclare(game);
+        return;
+      }
+      handleAction(game, idx, msg);
+    }
+  }
+  else if (msg.type === 'views' && !isHost) {
+    // 房主发送的游戏状态
+    if (msg.views[myUserId]) {
+      curState = msg.views[myUserId];
+      myId = curState.myId;
+      render(curState);
+    }
+  }
+  else if (msg.type === 'lobby_views' && !isHost) {
+    if (msg.views[myUserId]) {
+      curState = msg.views[myUserId];
+      myId = curState.myId;
+      render(curState);
+    }
+  }
+  else if (msg.type === 'restart' && !isHost) {
+    // 房主重启
+  }
+}
+
+// ========== 渲染 ==========
+
+window.onerror = function(msgText, url, line, col, err) {
+  const d = document.createElement('div');
+  d.style.cssText = 'position:fixed;top:0;left:0;right:0;background:red;color:#fff;z-index:9999;font-size:12px;padding:4px';
+  d.textContent = 'JS错误: ' + msgText + ' (行' + line + ')';
+  document.body.appendChild(d);
+  return true;
+};
+
+function render(s) {
+  if (!s) { console.error('render收到null state'); return; }
+  try {
+    const lobby = document.getElementById('lobby');
+    const gameDiv = document.getElementById('game');
+    const over = document.getElementById('gameover');
+    if (s.phase === 'lobby') {
+      lobby.style.display = ''; gameDiv.style.display = 'none'; over.style.display = 'none';
+      renderRoom(s); return;
+    }
+    if (s.phase === 'ended') {
+      lobby.style.display = 'none'; gameDiv.style.display = 'none'; over.style.display = '';
+      renderGameOver(s); return;
+    }
+    lobby.style.display = 'none'; gameDiv.style.display = ''; over.style.display = 'none';
+    renderGame(s);
+    // 自动跳过
+    if (s.actions.length === 1 && s.actions[0].auto) {
+      const autoAction = s.actions[0];
+      setTimeout(() => {
+        if (isHost && s.myId === 0) {
+          // 房主本地处理
+          if (autoAction.action === 'skipSteal' && autoAction.auto) {
+            game.players[0].stealDone = true;
+            nextStealTurn(game);
+          } else if (autoAction.action === 'skipBaogi' && autoAction.auto) {
+            if (game.phase === 'a_baogi') { startNormalPlay(game); return; }
+            game.declareTurn++; advanceDeclare(game);
+          }
+        } else if (!isHost) {
+          // 客人发送自动跳过给房主
+          sendGroupMsg({ type:'action', from:myUserId, ...autoAction, auto:true });
+        }
+      }, 400);
+    }
+    const needPlay = s.actions.some(a => a.action === 'play' || a.action === 'playFirst');
+    if (needPlay && s.currentPlayer === myId) {
+      cardSelectMode = s.actions.find(a => a.action === 'play') ? 'play' : 'playFirst';
+    } else {
+      cardSelectMode = null;
+    }
+  } catch(e) {
+    console.error('render错误:', e.message, e.stack);
+    document.getElementById('actionArea').innerHTML = '<div style="color:red;padding:10px">渲染错误: ' + e.message + '</div>';
+  }
+}
+
+function renderRoom(s) {
+  const ri = document.getElementById('roomInfo');
+  if (!s.players || s.players.length === 0) { ri.style.display = 'none'; return; }
+  ri.style.display = '';
+  document.getElementById('roomDisplay').textContent = s.roomId ? '房间号: ' + s.roomId : '房间已创建';
+  const pl = document.getElementById('playerList');
+  pl.innerHTML = s.players.map((p,i) =>
+    `<li>${p.name}${i===0?'<span class="host-tag">房主</span>':''}</li>`
+  ).join('');
+  const isHostNow = myId === 0;
+  document.getElementById('hostControls').style.display = isHostNow ? '' : 'none';
+  document.getElementById('guestWait').style.display = isHostNow ? 'none' : '';
+}
+
+function cardHTML(c) {
+  const color = (c.suit === 1 || c.suit === 2) ? 'red' : 'black';
+  return `<span class="mini-card ${color}">${c.label}${c.suitChar}</span>`;
+}
+
+function renderGame(s) {
+  const oppDiv = document.getElementById('opponents');
+  oppDiv.innerHTML = s.players.filter((p,i) => i !== myId).map(p => {
+    const isActive = p.id === s.currentPlayer && s.phase !== 'ended';
+    const frontHTML = p.front.map(g => {
+      const tags = {'偷':'偷','抓':'抓','扒':'扒','吃':'吃'};
+      const cards = g.cards.map(c => cardHTML(c)).join('');
+      return `<span class="mini-group"><span class="group-tag">${tags[g.type]||''}</span>${cards}</span>`;
+    }).join('');
+    return `<div class="opp ${isActive?'active':''}">
+      <div class="opp-name">${p.name}</div>
+      <div class="opp-cards">${p.handSize}张</div>
+      ${p.baogi?'<div class="opp-baogi">爆起</div>':''}
+      <div class="opp-front">${frontHTML}</div>
+    </div>`;
+  }).join('');
+
+  const ta = document.getElementById('tableArea');
+  if (s.tableCard) {
+    const tc = s.tableCard;
+    const color = (tc.suit === 1 || tc.suit === 2) ? 'red' : 'black';
+    const src = s.tableSource === 'play' ? '玩家打出' : '牌堆翻出';
+    ta.innerHTML = `<div class="table-card ${color}">${tc.label}<span style="font-size:14px">${tc.suitChar}</span></div>
+      <div class="table-source">${src} · 牌堆${s.deckSize}张</div>`;
+  } else {
+    ta.innerHTML = `<div class="table-empty">桌面无牌 · 牌堆${s.deckSize}张</div>`;
+  }
+
+  const ma = document.getElementById('msgArea');
+  ma.innerHTML = (s.messages || []).map(m => `<div>${m}</div>`).join('');
+  ma.scrollTop = ma.scrollHeight;
+
+  const mf = document.getElementById('myFront');
+  if (s.myFront && s.myFront.length > 0) {
+    mf.style.display = '';
+    mf.innerHTML = '<div class="my-front-label">我的面前牌</div>' +
+      s.myFront.map(g => {
+        const tags = {'偷':'偷','抓':'抓','扒':'扒','吃':'吃'};
+        return `<span class="front-group"><span class="group-tag">${tags[g.type]||''}</span>${g.cards.map(c=>cardHTML(c)).join('')}</span>`;
+      }).join('');
+  } else { mf.style.display = 'none'; }
+
+  const hl = document.getElementById('handLabel');
+  let labelHTML = `<span>我的手牌 (${s.myHand.length}张)</span>`;
+  if (s.lastDrawn) labelHTML += `<span class="drawn-tag">刚摸: ${s.lastDrawn.label}${s.lastDrawn.suitChar}</span>`;
+  hl.innerHTML = labelHTML;
+
+  const hr = document.getElementById('handRow');
+  const isMyTurn = s.currentPlayer === myId;
+  const canPlay = cardSelectMode !== null;
+  hr.innerHTML = s.myHand.map(c => {
+    const color = (c.suit === 1 || c.suit === 2) ? 'red' : 'black';
+    const playable = canPlay ? 'playable' : '';
+    const drawnMark = s.lastDrawn && c.id === s.lastDrawn.id ? '<span class="drawn-mark">★</span>' : '';
+    return `<div class="hand-card ${color} ${playable}" data-id="${c.id}">${drawnMark}<span class="rank">${c.label}</span><span class="suit">${c.suitChar}</span></div>`;
+  }).join('');
+
+  if (canPlay) {
+    hr.querySelectorAll('.hand-card').forEach(el => {
+      el.onclick = () => {
+        const cardId = parseInt(el.dataset.id);
+        if (isHost) {
+          // 房主本地处理
+          handleAction(game, 0, { action: cardSelectMode, cardId });
+        } else {
+          sendGroupMsg({ type:'action', from:myUserId, action:cardSelectMode, cardId });
+        }
+        cardSelectMode = null;
+      };
+    });
+  }
+
+  const aa = document.getElementById('actionArea');
+  if (!isMyTurn || s.actions.length === 0 || (s.actions.length === 1 && s.actions[0].auto)) {
+    if (s.phase === 'stealing') {
+      const cur = s.players[s.stealTurn || 0];
+      aa.innerHTML = `<div class="wait-hint">${cur ? cur.name + ' 偷起中...' : '等待中...'}</div>`;
+    } else if (s.phase === 'declaring' || s.phase === 'a_baogi') {
+      aa.innerHTML = `<div class="wait-hint">等待宣告...</div>`;
+    } else if (s.phase === 'first_play') {
+      aa.innerHTML = `<div class="wait-hint">${s.currentPlayer === myId ? '请打出一张牌' : '等待玩家A出牌...'}</div>`;
+    } else if (s.phase === 'playing') {
+      const cur = s.players[s.currentPlayer];
+      aa.innerHTML = `<div class="wait-hint">${cur ? cur.name + ' 出牌中...' : '等待中...'}</div>`;
+    } else { aa.innerHTML = ''; }
+    return;
+  }
+
+  let btns = '';
+  if (cardSelectMode) {
+    btns = `<div class="turn-hint">点击手牌打出</div>`;
+  } else {
+    for (const a of s.actions) {
+      if (a.auto) continue;
+      let cls = '';
+      if (a.action === 'win' || a.action === 'winGrab') cls = 'btn-win';
+      else if (a.action === 'grab') cls = 'btn-grab';
+      else if (a.action === 'eat') cls = 'btn-eat';
+      else if (a.action === 'flip') cls = 'btn-flip';
+      else if (a.action === 'dig') cls = 'btn-dig';
+      else if (a.action === 'declareBaogi') cls = 'btn-declare';
+      else if (a.action === 'skipSteal' || a.action === 'skipBaogi' || a.action === 'skipDig') cls = 'btn-skip';
+      const fanInfo = a.fan != null ? ` (${a.fan===0?'小胡':a.fan>=3?'满贯':a.fan+'番'})` : '';
+      btns += `<button class="${cls}" data-action='${JSON.stringify(a)}'>${a.label}${fanInfo}</button>`;
+    }
+  }
+  aa.innerHTML = btns;
+  if (!cardSelectMode) {
+    aa.querySelectorAll('button').forEach(el => {
+      el.onclick = () => {
+        const action = JSON.parse(el.dataset.action);
+        const { action: act, cardId, rank } = action;
+        const msg = { action: act };
+        if (cardId != null) msg.cardId = cardId;
+        if (rank != null) msg.rank = rank;
+        if (isHost) {
+          handleAction(game, 0, msg);
+        } else {
+          sendGroupMsg({ type:'action', from:myUserId, ...msg });
+        }
+      };
+    });
+  }
+}
+
+function renderGameOver(s) {
+  const title = document.getElementById('goTitle');
+  const detail = document.getElementById('goDetail');
+  const table = document.getElementById('scoreTable');
+  if (s.winner === -1) {
+    title.textContent = '本局作废';
+    detail.textContent = '牌堆耗尽，无人胡牌';
+  } else {
+    const w = s.players[s.winner];
+    const fan = w.winFan || 0;
+    const fanName = fan === 0 ? '小胡' : fan >= 3 ? '满贯' : fan + '番';
+    const baogi = w.baogi ? ' +爆起' : '';
+    const wt = s.winType === 'fangpao' ? '放炮胡' : s.winType === 'grab' ? '抓轴胡' : s.winType === 'tianhu' ? '天胡' : '牌堆胡';
+    title.textContent = w.name + ' 胡牌！';
+    detail.textContent = `${wt} · ${fanName}${baogi}`;
+  }
+  let html = '<tr><th>玩家</th><th>得分</th></tr>';
+  for (let i = 0; i < s.players.length; i++) {
+    const score = s.scores[i] || 0;
+    const cls = score >= 0 ? 'score-pos' : 'score-neg';
+    const sign = score > 0 ? '+' : '';
+    const winnerTag = i === s.winner ? ' ★' : '';
+    html += `<tr><td>${s.players[i].name}${winnerTag}</td><td class="${cls}">${sign}${score}</td></tr>`;
+  }
+  table.innerHTML = html;
+  const restartBtn = document.querySelector('#gameover button');
+  if (myId === 0 && isHost) {
+    restartBtn.style.display = '';
+    restartBtn.textContent = '再来一局';
+  } else {
+    restartBtn.style.display = 'none';
+    if (!document.getElementById('waitRestart')) {
+      const wait = document.createElement('div');
+      wait.id = 'waitRestart'; wait.className = 'wait-hint'; wait.style.marginTop = '8px';
+      wait.textContent = '等待房主开始新游戏...';
+      restartBtn.parentNode.appendChild(wait);
+    }
+  }
+}
+
+// ========== 启动检查 ==========
+function checkSDKLoaded() {
+  if (typeof TencentCloudChat !== 'undefined' && typeof LibGenerateTestUserSig !== 'undefined') {
+    hideLoading();
+    document.getElementById('lobby').style.display = '';
+  } else {
+    setTimeout(checkSDKLoaded, 200);
+  }
+}
+
+// 全局错误捕获
+window.addEventListener('unhandledrejection', function(event) {
+  console.error('Unhandled rejection:', event.reason);
+});
+
+// 启动
+checkSDKLoaded();
+</script>
+</body>
+</html>
