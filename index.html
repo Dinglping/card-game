@@ -427,6 +427,8 @@ function autoFlip(g) {
       broadcastViews(g); return;
     }
     g.subState = 'must_play';
+    ensureMustPlayHand(g, idx);
+    if (g.phase === 'ended') return;
     broadcastViews(g); return;
   }
   
@@ -446,6 +448,21 @@ function checkDeckEmpty(g) {
     broadcastViews(g); return true;
   }
   return false;
+}
+// 安全网：进入 must_play 前确保手牌不为空，空则自动摸牌或判作废
+function ensureMustPlayHand(g, idx) {
+  const player = g.players[idx];
+  if (player.hand.length > 0) return;
+  if (g.deck.length > 0) {
+    player.hand.push(g.deck.shift());
+    player.lastDrawn = player.hand[player.hand.length-1];
+    addMsg(g, player.name + ' 手牌已空，自动摸牌');
+  } else {
+    addMsg(g, '牌堆已空，本局作废');
+    g.phase = 'ended'; g.winner = -1; g.scores = {};
+    for (let i = 0; i < g.players.length; i++) g.scores[i] = 0;
+    broadcastViews(g);
+  }
 }
 function endGame(g) {
   g.phase = 'ended';
@@ -508,7 +525,7 @@ function handleAction(g, idx, msg) {
   else if (a === 'playFirst') {
     const cardId = msg.cardId;
     const ci = player.hand.findIndex(c => c.id === cardId);
-    if (ci < 0) return;
+    if (ci < 0) { addMsg(g, '[系统] 牌已过期，请重新选择'); broadcastViews(g); return; }
     const card = player.hand.splice(ci, 1)[0];
     g.tableCard = card; g.tableSource = 'play'; g.tableSourcePlayer = idx;
     addMsg(g, player.name + ' 打出 ' + SUITS[card.suit] + rankLabel(card.rank));
@@ -542,7 +559,7 @@ function handleAction(g, idx, msg) {
     addMsg(g, player.name + ' 抓了三个' + rankLabel(rank) + '，摸了一张牌');
     const winResult = canWinWith(player, null);
     if (winResult.canWin) { g.subState = 'after_grab'; addMsg(g, player.name + ' 可以抓轴胡！'); broadcastViews(g); }
-    else { g.subState = 'must_play'; broadcastViews(g); }
+    else { ensureMustPlayHand(g, idx); g.subState = 'must_play'; broadcastViews(g); }
   }
   else if (a === 'dig') {
     // 扒：将自己翻出的桌牌加入面前同点数组（偷/抓），然后从牌堆摸一张牌
@@ -558,30 +575,26 @@ function handleAction(g, idx, msg) {
     player.hand.push(drawn); player.lastDrawn = drawn;
     const winResult = canWinWith(player, null);
     if (winResult.canWin) { g.subState = 'after_grab'; broadcastViews(g); }
-    else { g.subState = 'must_play'; broadcastViews(g); }
+    else { ensureMustPlayHand(g, idx); g.subState = 'must_play'; broadcastViews(g); }
   }
   else if (a === 'skipDig' || a === 'skipPlay') {
+    ensureMustPlayHand(g, idx);
     g.subState = 'must_play';
     broadcastViews(g);
   }
   else if (a === 'eat') {
     const cardId = msg.cardId;
     const ci = player.hand.findIndex(c => c.id === cardId);
-    if (ci < 0) return;
+    if (ci < 0) { addMsg(g, '[系统] 牌已过期，请重新选择'); broadcastViews(g); return; }
     if (!g.tableCard || 14 - g.tableCard.rank !== player.hand[ci].rank) return;
     const tc = g.tableCard;
     const eatCard = player.hand.splice(ci, 1)[0];
     player.front.push({ cards: [eatCard, tc], type: '吃' });
     g.tableCard = null;
     addMsg(g, player.name + ' 吃了 ' + SUITS[eatCard.suit] + rankLabel(eatCard.rank) + '+' + SUITS[tc.suit] + rankLabel(tc.rank));
+    ensureMustPlayHand(g, idx);
+    if (g.phase === 'ended') return; // ensureMustPlayHand 可能判作废
     g.subState = 'must_play';
-    // 安全兜底：吃完后手牌为空且牌堆也空，无法出牌，判作废
-    if (player.hand.length === 0 && g.deck.length === 0) {
-      addMsg(g, '牌堆已空，本局作废');
-      g.phase = 'ended'; g.winner = -1; g.scores = {};
-      for (let i = 0; i < g.players.length; i++) g.scores[i] = 0;
-      broadcastViews(g); return;
-    }
     broadcastViews(g);
   }
   else if (a === 'flip') {
@@ -605,7 +618,7 @@ function handleAction(g, idx, msg) {
   else if (a === 'play') {
     const cardId = msg.cardId;
     const ci = player.hand.findIndex(c => c.id === cardId);
-    if (ci < 0) return;
+    if (ci < 0) { addMsg(g, '[系统] 牌已过期，请重新选择'); broadcastViews(g); return; }
     const card = player.hand.splice(ci, 1)[0];
     g.tableCard = card; g.tableSource = 'play'; g.tableSourcePlayer = idx;
     player.lastDrawn = null;
@@ -675,18 +688,12 @@ function getAvailableActions(g, idx) {
       if (wr2.canWin) actions.push({action:'winGrab', label:'抓轴胡', fan:wr2.fan});
       actions.push({action:'skipDig', label:'出牌'});
     } else if (g.subState === 'must_play') {
-      // 兜底：手牌为空无法出牌，系统自动翻牌补牌
-      if (player.hand.length === 0 && g.deck.length > 0) {
-        // 手牌空时自动摸牌（模拟 autoFlip 的补牌逻辑）
-        player.hand.push(g.deck.shift());
-        player.lastDrawn = player.hand[player.hand.length-1];
-        addMsg(g, player.name + ' 手牌已空，自动摸牌');
-        actions.push({action:'play', label:'选择一张牌打出'});
-      } else if (player.hand.length === 0 && g.deck.length === 0) {
-        // 手牌空且牌堆空，无动作可做，返回空列表触发作废检测
-      } else {
+      // must_play：必须打出一张牌
+      // 注意：不在视图生成中修改游戏状态（副作用），手牌空时由调用方处理
+      if (player.hand.length > 0) {
         actions.push({action:'play', label:'选择一张牌打出'});
       }
+      // 手牌为空时返回空数组，由 broadcastViews/nextPlayTurn 检测并处理
     }
     // must_play 状态下，如果有吃/抓按钮，也需要出牌选项；如果没有则只有must_play
   }
@@ -1309,13 +1316,17 @@ function renderGame(s) {
     hr.querySelectorAll('.hand-card').forEach(el => {
       el.onclick = () => {
         const cardId = parseInt(el.dataset.id);
+        // 先保存 action，因为 handleAction 内部会触发 render 改变 cardSelectMode
+        const act = cardSelectMode;
         if (isHost) {
-          // 房主本地处理
-          handleAction(game, 0, { action: cardSelectMode, cardId });
+          // 房主本地处理：handleAction → broadcastViews → render 会重新设置 cardSelectMode
+          handleAction(game, 0, { action: act, cardId });
+          // 不覆盖 cardSelectMode，render 已经正确设置
         } else {
-          sendGroupMsg({ type:'action', from:myUserId, action:cardSelectMode, cardId });
+          // 客人：发送后置空防止重复点击，新视图到达时 render 会重新设置
+          sendGroupMsg({ type:'action', from:myUserId, action:act, cardId });
+          cardSelectMode = null;
         }
-        cardSelectMode = null;
       };
     });
   }
