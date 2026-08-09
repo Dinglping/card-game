@@ -285,24 +285,18 @@ function canDig(player) {
   return false;
 }
 
-// 判断当前玩家能否对桌牌进行吃/抓
-// 规则：自己翻出的牌可以吃/抓；自己打出的牌不能；别人翻出/打出的牌按上下家关系判断
-// 2人时互为上下家；3人以上只能吃/抓上家（上一个出牌玩家）的牌
-function canEatOrGrab(g, myIdx, srcIdx, srcType) {
-  if (srcIdx < 0) return true; // 兜底
-  if (srcIdx === myIdx) {
-    // 自己翻出的可以吃/抓，自己打出的不行
-    return srcType === 'flip';
+// 判断当前玩家能否对桌牌进行"吃"
+// 规则：自己翻出的牌可以吃；自己打出的牌不能吃；2人互为上下家；3人以上只能吃上家
+function canEatTable(g, idx) {
+  if (!g.tableCard) return false;
+  const srcIdx = g.tableSourcePlayer;
+  if (srcIdx < 0) return true;
+  if (srcIdx === idx) {
+    return g.tableSource === 'flip'; // 自己翻的可以吃，自己打的不行
   }
-  // 别人出的牌
   const n = g.players.length;
-  if (n === 2) {
-    // 2人互为上下家
-    return true;
-  }
-  // 3人以上：只能吃/抓上家的牌（上一个出牌的玩家）
-  const upperIdx = (myIdx - 1 + n) % n;
-  return srcIdx === upperIdx;
+  if (n === 2) return true; // 2人互为上下家
+  return srcIdx === (idx - 1 + n) % n; // 3+人只能吃上家
 }
 
 // ========== 游戏状态（房主端）==========
@@ -376,7 +370,7 @@ function nextPlayTurn(g) {
   g.subState = null;
   if (g.deck.length === 0 && g.tableCard) {
     const acts = getAvailableActions(g, g.currentPlayer);
-    const hasRealAction = acts.some(a => !a.auto);
+    const hasRealAction = acts.some(a => !a.auto && a.action !== 'pass');
     if (!hasRealAction) {
       addMsg(g, '牌堆已空，本局作废');
       g.phase = 'ended'; g.winner = -1; g.scores = {};
@@ -534,6 +528,12 @@ function handleAction(g, idx, msg) {
     const flipped = g.deck.shift();
     g.tableCard = flipped; g.tableSource = 'flip'; g.tableSourcePlayer = idx;
     addMsg(g, player.name + ' 翻出 ' + SUITS[flipped.suit] + rankLabel(flipped.rank));
+    // 不切到下一玩家，翻牌人可以自己对翻牌进行胡/吃/抓/过
+    g.subState = null;
+    broadcastViews(g);
+  }
+  else if (a === 'pass') {
+    // 忽略桌牌，交给下家
     nextPlayTurn(g);
   }
   else if (a === 'play') {
@@ -580,19 +580,21 @@ function getAvailableActions(g, idx) {
   else if (g.phase === 'playing' && g.currentPlayer === idx) {
     // 所有子状态下，只要桌上有牌都可以检查胡/抓/吃
     if (g.tableCard) {
+      // 胡牌：任何人任何时候都可以胡
       const wr = canWinWith(player, g.tableCard);
       if (wr.canWin) actions.push({action:'win', label:'胡牌', fan:wr.fan});
 
-      // 判断能否吃/抓：自己翻出的可以，别人出的看上下家关系
-      const srcPlayer = g.tableSourcePlayer;
-      const canAct = canEatOrGrab(g, idx, srcPlayer, g.tableSource);
-      if (canAct) {
-        if (hasGrabPair(player.hand, g.tableCard)) actions.push({action:'grab', label:'抓牌'});
-        if (player.hand.length >= 1) {
-          const eatable = findEatable(player.hand, g.tableCard);
-          for (const c of eatable) actions.push({action:'eat', cardId:c.id, label:'吃 '+SUITS[c.suit]+rankLabel(c.rank)});
-        }
+      // 抓牌：不判断顺序，任何人都可以抓
+      if (hasGrabPair(player.hand, g.tableCard)) actions.push({action:'grab', label:'抓牌'});
+
+      // 吃牌：判断上下家关系
+      if (canEatTable(g, idx) && player.hand.length >= 1) {
+        const eatable = findEatable(player.hand, g.tableCard);
+        for (const c of eatable) actions.push({action:'eat', cardId:c.id, label:'吃 '+SUITS[c.suit]+rankLabel(c.rank)});
       }
+
+      // 忽略（过）：不想吃/抓/胡，把桌牌留给下家
+      if (g.subState === null) actions.push({action:'pass', label:'过'});
     }
     if (g.subState === null) {
       if (g.deck.length > 0) actions.push({action:'flip', label:'翻牌'});
@@ -1311,7 +1313,7 @@ function renderGame(s) {
       else if (a.action === 'dig') cls = 'btn-dig';
       else if (a.action === 'declareBaogi') cls = 'btn-declare';
       else if (a.action === 'play' || a.action === 'playFirst') cls = 'btn-play';
-      else if (a.action === 'skipSteal' || a.action === 'skipBaogi' || a.action === 'skipDig') cls = 'btn-skip';
+      else if (a.action === 'skipSteal' || a.action === 'skipBaogi' || a.action === 'skipDig' || a.action === 'pass') cls = 'btn-skip';
       const fanInfo = a.fan != null ? ` (${a.fan===0?'小胡':a.fan>=3?'满贯':a.fan+'番'})` : '';
       btns += `<button class="${cls}" data-action='${JSON.stringify(a)}'>${a.label}${fanInfo}</button>`;
     }
