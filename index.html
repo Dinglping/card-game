@@ -78,6 +78,7 @@ input{padding:10px;border:1px solid #d0d5dd;border-radius:6px;font-size:14px;wid
 /* 手牌排序模式 */
 .hand-card.sort-mode{border-color:#7b61ff;box-shadow:0 0 6px rgba(123,97,255,.3);cursor:grab}
 .hand-card.sort-mode:active{cursor:grabbing}
+.hand-card.drag-over{border-color:#00a870;box-shadow:0 0 8px rgba(0,168,112,.4)}
 .sort-link{font-size:11px;color:#7b61ff;cursor:pointer;text-decoration:underline;padding:0 4px}
 .sort-tag{font-size:11px;color:#fff;background:#7b61ff;padding:1px 8px;border-radius:3px;cursor:pointer}
 
@@ -284,13 +285,33 @@ function canDig(player) {
   return false;
 }
 
+// 判断当前玩家能否对桌牌进行吃/抓
+// 规则：自己翻出的牌可以吃/抓；自己打出的牌不能；别人翻出/打出的牌按上下家关系判断
+// 2人时互为上下家；3人以上只能吃/抓上家（上一个出牌玩家）的牌
+function canEatOrGrab(g, myIdx, srcIdx, srcType) {
+  if (srcIdx < 0) return true; // 兜底
+  if (srcIdx === myIdx) {
+    // 自己翻出的可以吃/抓，自己打出的不行
+    return srcType === 'flip';
+  }
+  // 别人出的牌
+  const n = g.players.length;
+  if (n === 2) {
+    // 2人互为上下家
+    return true;
+  }
+  // 3人以上：只能吃/抓上家的牌（上一个出牌的玩家）
+  const upperIdx = (myIdx - 1 + n) % n;
+  return srcIdx === upperIdx;
+}
+
 // ========== 游戏状态（房主端）==========
 let game = null;
 
 function createGame(roomId) {
   return {
     roomId, phase:'lobby', players:[],
-    deck:[], tableCard:null, tableSource:null,
+    deck:[], tableCard:null, tableSource:null, tableSourcePlayer:-1,
     currentPlayer:0, stealTurn:0, declareTurn:0, subState:null,
     messages:[], winner:null, scores:null, fangpaoId:null, winType:null,
   };
@@ -437,7 +458,7 @@ function handleAction(g, idx, msg) {
     const ci = player.hand.findIndex(c => c.id === cardId);
     if (ci < 0) return;
     const card = player.hand.splice(ci, 1)[0];
-    g.tableCard = card; g.tableSource = 'play';
+    g.tableCard = card; g.tableSource = 'play'; g.tableSourcePlayer = idx;
     addMsg(g, player.name + ' 打出 ' + SUITS[card.suit] + rankLabel(card.rank));
     if (canBaogi(player.hand)) { g.phase = 'a_baogi'; broadcastViews(g); }
     else startNormalPlay(g);
@@ -511,7 +532,7 @@ function handleAction(g, idx, msg) {
       broadcastViews(g); return;
     }
     const flipped = g.deck.shift();
-    g.tableCard = flipped; g.tableSource = 'flip';
+    g.tableCard = flipped; g.tableSource = 'flip'; g.tableSourcePlayer = idx;
     addMsg(g, player.name + ' 翻出 ' + SUITS[flipped.suit] + rankLabel(flipped.rank));
     nextPlayTurn(g);
   }
@@ -520,7 +541,7 @@ function handleAction(g, idx, msg) {
     const ci = player.hand.findIndex(c => c.id === cardId);
     if (ci < 0) return;
     const card = player.hand.splice(ci, 1)[0];
-    g.tableCard = card; g.tableSource = 'play';
+    g.tableCard = card; g.tableSource = 'play'; g.tableSourcePlayer = idx;
     player.lastDrawn = null;
     addMsg(g, player.name + ' 打出 ' + SUITS[card.suit] + rankLabel(card.rank));
     nextPlayTurn(g);
@@ -561,10 +582,16 @@ function getAvailableActions(g, idx) {
     if (g.tableCard) {
       const wr = canWinWith(player, g.tableCard);
       if (wr.canWin) actions.push({action:'win', label:'胡牌', fan:wr.fan});
-      if (hasGrabPair(player.hand, g.tableCard)) actions.push({action:'grab', label:'抓牌'});
-      if (player.hand.length >= 1) {
-        const eatable = findEatable(player.hand, g.tableCard);
-        for (const c of eatable) actions.push({action:'eat', cardId:c.id, label:'吃 '+SUITS[c.suit]+rankLabel(c.rank)});
+
+      // 判断能否吃/抓：自己翻出的可以，别人出的看上下家关系
+      const srcPlayer = g.tableSourcePlayer;
+      const canAct = canEatOrGrab(g, idx, srcPlayer, g.tableSource);
+      if (canAct) {
+        if (hasGrabPair(player.hand, g.tableCard)) actions.push({action:'grab', label:'抓牌'});
+        if (player.hand.length >= 1) {
+          const eatable = findEatable(player.hand, g.tableCard);
+          for (const c of eatable) actions.push({action:'eat', cardId:c.id, label:'吃 '+SUITS[c.suit]+rankLabel(c.rank)});
+        }
       }
     }
     if (g.subState === null) {
@@ -1173,21 +1200,20 @@ function renderGame(s) {
     return `<div class="hand-card ${color} ${playable}${sortMode?' sort-mode':''}" data-id="${c.id}"${sortAttr}>${drawnMark}<span class="rank">${c.label}</span><span class="suit">${c.suitChar}</span></div>`;
   }).join('');
 
-  // 排序模式：拖拽交换
+  // 排序模式：拖拽交换（PC用HTML5拖拽，手机用touch）
   if (sortMode) {
+    let touchCardId = null;
+    let touchGhost = null;
     hr.querySelectorAll('.hand-card').forEach(el => {
+      const cardId = parseInt(el.dataset.dragId);
+      // PC拖拽
       el.ondragstart = (e) => {
-        dragCardId = parseInt(el.dataset.dragId);
+        dragCardId = cardId;
         e.dataTransfer.effectAllowed = 'move';
         el.style.opacity = '0.4';
       };
-      el.ondragend = () => {
-        el.style.opacity = '';
-      };
-      el.ondragover = (e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-      };
+      el.ondragend = () => { el.style.opacity = ''; };
+      el.ondragover = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; };
       el.ondrop = (e) => {
         e.preventDefault();
         const targetId = parseInt(el.dataset.dragId);
@@ -1195,11 +1221,44 @@ function renderGame(s) {
         const fromIdx = handOrder.indexOf(dragCardId);
         const toIdx = handOrder.indexOf(targetId);
         if (fromIdx < 0 || toIdx < 0) return;
-        // 交换位置
         handOrder.splice(fromIdx, 1);
         handOrder.splice(toIdx, 0, dragCardId);
         dragCardId = null;
         renderGame(curState);
+      };
+      // 手机触摸
+      el.ontouchstart = (e) => {
+        touchCardId = cardId;
+        el.style.opacity = '0.4';
+      };
+      el.ontouchmove = (e) => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        const target = document.elementFromPoint(touch.clientX, touch.clientY);
+        const targetCard = target ? target.closest('.hand-card') : null;
+        // 移除之前的高亮
+        hr.querySelectorAll('.drag-over').forEach(x => x.classList.remove('drag-over'));
+        if (targetCard) targetCard.classList.add('drag-over');
+      };
+      el.ontouchend = (e) => {
+        el.style.opacity = '';
+        hr.querySelectorAll('.drag-over').forEach(x => x.classList.remove('drag-over'));
+        const touch = e.changedTouches[0];
+        const target = document.elementFromPoint(touch.clientX, touch.clientY);
+        const targetCard = target ? target.closest('.hand-card') : null;
+        if (touchCardId !== null && targetCard) {
+          const targetId = parseInt(targetCard.dataset.dragId);
+          if (touchCardId !== targetId) {
+            const fromIdx = handOrder.indexOf(touchCardId);
+            const toIdx = handOrder.indexOf(targetId);
+            if (fromIdx >= 0 && toIdx >= 0) {
+              handOrder.splice(fromIdx, 1);
+              handOrder.splice(toIdx, 0, touchCardId);
+              renderGame(curState);
+            }
+          }
+        }
+        touchCardId = null;
       };
     });
   }
