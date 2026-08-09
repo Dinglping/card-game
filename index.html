@@ -161,6 +161,7 @@ input{padding:10px;border:1px solid #d0d5dd;border-radius:6px;font-size:14px;wid
     <div class="my-front" id="myFront" style="display:none"></div>
     <div class="hand-label" id="handLabel"></div>
     <div class="hand-row" id="handRow"></div>
+    <div id="sortRow" style="display:none;text-align:center;margin:4px 0"></div>
     <div class="actions" id="actionArea"></div>
   </div>
 </div>
@@ -361,12 +362,28 @@ function startPlaying(g) {
 }
 function startNormalPlay(g) {
   g.phase = 'playing'; g.currentPlayer = 1; g.subState = null;
-  broadcastViews(g);
+  // 第一轮出牌后，桌面有牌，下家接管
+  if (g.tableCard) {
+    broadcastViews(g);
+  } else {
+    // 安全兜底
+    nextPlayTurn(g);
+  }
 }
 function nextPlayTurn(g) {
   const n = g.players.length;
+  const prevPlayer = g.currentPlayer;
   g.currentPlayer = (g.currentPlayer + 1) % n;
   g.subState = null;
+  // 如果绕了一圈回到出牌/翻牌者（所有人都过），清桌牌后自动翻牌
+  if (g.tableCard && g.currentPlayer === g.tableSourcePlayer) {
+    g.tableCard = null;
+    g.tableSource = null;
+    g.tableSourcePlayer = -1;
+    autoFlip(g);
+    return;
+  }
+  // 牌堆空且桌上有牌：检查下家是否有真实动作，无则判作废
   if (g.deck.length === 0 && g.tableCard) {
     const acts = getAvailableActions(g, g.currentPlayer);
     const hasRealAction = acts.some(a => !a.auto && a.action !== 'pass');
@@ -377,6 +394,48 @@ function nextPlayTurn(g) {
       broadcastViews(g); return;
     }
   }
+  // 桌上没牌时，系统自动为当前玩家翻牌
+  if (!g.tableCard) {
+    autoFlip(g);
+    return;
+  }
+  broadcastViews(g);
+}
+
+// 系统自动翻牌
+function autoFlip(g) {
+  if (g.deck.length === 0) {
+    addMsg(g, '牌堆已空，本局作废');
+    g.phase = 'ended'; g.winner = -1; g.scores = {};
+    for (let i = 0; i < g.players.length; i++) g.scores[i] = 0;
+    broadcastViews(g); return;
+  }
+  const idx = g.currentPlayer;
+  const player = g.players[idx];
+  const flipped = g.deck.shift();
+  
+  // 需求4：4人时第4玩家(索引3)翻牌直接入手牌，不展示桌面
+  if (g.players.length === 4 && idx === 3) {
+    player.hand.push(flipped);
+    player.lastDrawn = flipped;
+    addMsg(g, player.name + '(小家) 摸了一张牌');
+    // 检查能否胡
+    const winResult = canWinWith(player, null);
+    if (winResult.canWin) {
+      g.subState = 'after_grab';
+      addMsg(g, player.name + ' 可以胡牌！');
+      broadcastViews(g); return;
+    }
+    g.subState = 'must_play';
+    broadcastViews(g); return;
+  }
+  
+  // 普通玩家：牌放桌面展示
+  g.tableCard = flipped;
+  g.tableSource = 'flip';
+  g.tableSourcePlayer = idx;
+  addMsg(g, player.name + ' 翻出 ' + SUITS[flipped.suit] + rankLabel(flipped.rank));
+  g.subState = null;
   broadcastViews(g);
 }
 function checkDeckEmpty(g) {
@@ -585,37 +644,44 @@ function getAvailableActions(g, idx) {
     actions.push({action:'playFirst', label:'选择一张牌打出'});
   }
   else if (g.phase === 'playing' && g.currentPlayer === idx) {
-    // 所有子状态下，只要桌上有牌都可以检查胡/抓/吃
+    // 所有子状态下，只要桌上有牌都可以检查胡/抓/吃/扒（按优先级互斥）
     if (g.tableCard) {
-      // 胡牌：任何人任何时候都可以胡
+      // 胡牌：最高优先级，任何人任何时候都可以胡
       const wr = canWinWith(player, g.tableCard);
-      if (wr.canWin) actions.push({action:'win', label:'胡牌', fan:wr.fan});
-
-      // 抓牌：不判断顺序，任何人都可以抓
-      if (hasGrabPair(player.hand, g.tableCard)) actions.push({action:'grab', label:'抓牌'});
-
-      // 吃牌：判断上下家关系，且吃完后必须还有牌可打出（吃消耗1张不补牌）
-      if (canEatTable(g, idx) && player.hand.length >= 2) {
-        const eatable = findEatable(player.hand, g.tableCard);
-        for (const c of eatable) actions.push({action:'eat', cardId:c.id, label:'吃 '+SUITS[c.suit]+rankLabel(c.rank)});
+      if (wr.canWin) {
+        actions.push({action:'win', label:'胡牌', fan:wr.fan});
+      } else {
+        // 无胡牌时检查次优先级：抓、扒（平级，都可显示）
+        const canGrab = hasGrabPair(player.hand, g.tableCard);
+        const canDig = canDigTable(g, idx);
+        if (canGrab) actions.push({action:'grab', label:'抓牌'});
+        if (canDig) actions.push({action:'dig', label:'扒'});
+        // 无抓无扒时检查最低优先级：吃
+        if (!canGrab && !canDig) {
+          if (canEatTable(g, idx) && player.hand.length >= 2) {
+            const eatable = findEatable(player.hand, g.tableCard);
+            for (const c of eatable) actions.push({action:'eat', cardId:c.id, label:'吃 '+SUITS[c.suit]+rankLabel(c.rank)});
+          }
+        }
       }
 
-      // 扒：自己翻出的牌与面前组（偷/抓）同点数
-      if (canDigTable(g, idx)) actions.push({action:'dig', label:'扒'});
-
-      // 忽略（过）：不想吃/抓/胡，把桌牌留给下家
+      // 忽略（过）：不想吃/抓/胡/扒，把桌牌留给下家
       if (g.subState === null) actions.push({action:'pass', label:'过'});
     }
     if (g.subState === null) {
-      if (g.deck.length > 0) actions.push({action:'flip', label:'翻牌'});
+      // 无需翻牌按钮，系统自动翻牌（nextPlayTurn处理）
     } else if (g.subState === 'after_grab') {
       const wr2 = canWinWith(player, null);
       if (wr2.canWin) actions.push({action:'winGrab', label:'抓轴胡', fan:wr2.fan});
       actions.push({action:'skipDig', label:'出牌'});
     } else if (g.subState === 'must_play') {
-      // 兜底：手牌为空无法出牌（正常流程不会发生），自动翻牌避免卡局
+      // 兜底：手牌为空无法出牌，系统自动翻牌补牌
       if (player.hand.length === 0 && g.deck.length > 0) {
-        actions.push({action:'flip', label:'手牌已空，翻牌'});
+        // 手牌空时自动摸牌（模拟 autoFlip 的补牌逻辑）
+        player.hand.push(g.deck.shift());
+        player.lastDrawn = player.hand[player.hand.length-1];
+        addMsg(g, player.name + ' 手牌已空，自动摸牌');
+        actions.push({action:'play', label:'选择一张牌打出'});
       } else if (player.hand.length === 0 && g.deck.length === 0) {
         // 手牌空且牌堆空，无动作可做，返回空列表触发作废检测
       } else {
@@ -1221,9 +1287,6 @@ function renderGame(s) {
   const hl = document.getElementById('handLabel');
   let labelHTML = `<span>我的手牌 (${s.myHand.length}张)</span>`;
   if (s.lastDrawn) labelHTML += `<span class="drawn-tag">刚摸: ${s.lastDrawn.label}${s.lastDrawn.suitChar}</span>`;
-  if (s.myHand.length > 1) {
-    labelHTML += `<span class="sort-tag" onclick="autoSortHand()">理牌</span>`;
-  }
   hl.innerHTML = labelHTML;
 
   const hr = document.getElementById('handRow');
@@ -1255,6 +1318,15 @@ function renderGame(s) {
         cardSelectMode = null;
       };
     });
+  }
+
+  // 理牌按钮（在手牌下方，避免误触出牌）
+  const sortRow = document.getElementById('sortRow');
+  if (s.myHand.length > 1) {
+    sortRow.style.display = '';
+    sortRow.innerHTML = `<span class="sort-tag" onclick="autoSortHand()">理牌</span>`;
+  } else {
+    sortRow.style.display = 'none';
   }
 
   const aa = document.getElementById('actionArea');
