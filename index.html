@@ -101,14 +101,23 @@ input{padding:10px;border:1px solid #d0d5dd;border-radius:6px;font-size:14px;wid
 </head>
 <body>
 
+<!-- 调试面板（始终在最上层，不可隐藏） -->
+<div id="debugPanel" style="position:fixed;bottom:0;left:0;right:0;background:#fff3cd;color:#856404;border-top:2px solid #ffc107;font-size:11px;padding:3px 8px;z-index:999998;max-height:60px;overflow-y:auto;display:none"></div>
+
 <!-- 加载页 -->
 <div id="loading">
   <div class="spinner"></div>
   <div id="loadingText" style="font-size:13px;color:#888">正在加载游戏组件...</div>
 </div>
 
+<!-- 全局错误覆盖层 -->
+<div id="errorOverlay" style="position:fixed;inset:0;background:rgba(255,0,0,0.95);color:#fff;z-index:999999;display:none;padding:20px;font-size:12px;word-break:break-all;overflow:auto"></div>
+
 <!-- 连接状态 -->
 <div id="connStatus" style="position:fixed;top:0;left:0;right:0;background:#e8f0fe;color:#0052D9;text-align:center;font-size:12px;padding:2px;z-index:999;display:none"></div>
+
+<!-- 调试开关 -->
+<div style="position:fixed;top:0;right:0;z-index:999997;font-size:10px;padding:2px 6px;background:#333;color:#0f0;font-family:monospace;cursor:pointer;border-radius:0 0 0 4px" onclick="toggleDebug()">DEBUG</div>
 
 <!-- 大厅 -->
 <div id="lobby" style="display:none">
@@ -631,22 +640,27 @@ function hideConn() {
 }
 
 function initIM() {
+  showDebug('initIM: TencentCloudChat=' + (typeof TencentCloudChat));
   chat = TencentCloudChat.create({ SDKAppID: SDKAPPID });
   chat.setLogLevel(1);
   chat.on(TencentCloudChat.EVENT.SDK_READY, () => {
     imReady = true;
+    showDebug('IM SDK_READY!');
     hideConn();
     onIMReady();
   });
   chat.on(TencentCloudChat.EVENT.SDK_NOT_READY, () => {
     imReady = false;
+    showDebug('IM SDK_NOT_READY');
     showConn('连接中...', false);
   });
   chat.on(TencentCloudChat.EVENT.MESSAGE_RECEIVED, onMessageReceived);
   chat.on(TencentCloudChat.EVENT.KICKED_OUT, (event) => {
+    showDebug('被踢下线');
     showConn('账号在其他设备登录，已被踢下线', true);
   });
   chat.on(TencentCloudChat.EVENT.NET_STATE_CHANGE, (event) => {
+    showDebug('网络状态: ' + (event.data ? event.data.state : 'unknown'));
     if (event.data.state === TencentCloudChat.TYPES.NET_STATE_CONNECTING)
       showConn('网络重连中...', false);
     else if (event.data.state === TencentCloudChat.TYPES.NET_STATE_DISCONNECTED)
@@ -695,6 +709,7 @@ function onIMReady() {
 
 function hostCreateGroup() {
   showLoading('正在创建房间...');
+  showDebug('hostCreateGroup: groupId=' + groupId);
   chat.createGroup({
     type: TencentCloudChat.TYPES.GRP_MEETING,
     name: '棋牌房间 ' + roomCode,
@@ -742,11 +757,13 @@ function hostCreateGroup() {
 
 function broadcastViews(g) {
   try {
+    showDebug('broadcastViews: phase=' + g.phase + ' players=' + g.players.length);
     // 渲染房主自己的视图
     const hostView = getView(g, 0);
     curState = hostView;
     myId = 0;
     render(hostView);
+    showDebug('房主渲染完成');
     // 发送其他玩家的视图
     const views = {};
     for (let i = 1; i < g.players.length; i++) {
@@ -755,10 +772,11 @@ function broadcastViews(g) {
     }
     if (Object.keys(views).length > 0) {
       sendGroupMsg({ type:'views', views: views });
+      showDebug('已发送视图给 ' + Object.keys(views).length + ' 个客人');
     }
   } catch(e) {
-    console.error('broadcastViews错误:', e.message, e.stack);
-    alert('广播状态出错: ' + e.message);
+    showDebug('broadcastViews错误: ' + e.message);
+    showErrorFull('broadcastViews: ' + e.message, e.stack);
   }
 }
 
@@ -782,8 +800,10 @@ function broadcastLobby() {
 
 function startGame() {
   try {
+    showDebug('startGame开始, 玩家数:' + game.players.length);
     if (game.players.length < 2) return alert('至少需要2人');
     dealCards(game);
+    showDebug('发牌完成');
     game.phase = 'stealing';
     game.stealTurn = 0;
     while (game.stealTurn < game.players.length &&
@@ -791,15 +811,17 @@ function startGame() {
       game.players[game.stealTurn].stealDone = true;
       game.stealTurn++;
     }
+    showDebug('偷起检查完成, stealTurn=' + game.stealTurn);
     if (game.stealTurn >= game.players.length) {
+      showDebug('跳到宣告阶段');
       startDeclaring(game);
     } else {
       addMsg(game, '游戏开始！偷起阶段');
       broadcastViews(game);
     }
   } catch(e) {
-    console.error('startGame错误:', e.message, e.stack);
-    alert('开始游戏出错: ' + e.message);
+    showDebug('startGame错误: ' + e.message);
+    showErrorFull('startGame: ' + e.message, e.stack);
   }
 }
 
@@ -834,11 +856,14 @@ function joinRoom() {
 
 function guestJoinGroup() {
   showLoading('正在加入房间...');
+  showDebug('guestJoinGroup: groupId=' + groupId);
   chat.joinGroup({ groupID: groupId }).then((res) => {
     // 成功加入或已在群组
+    showDebug('加入群组成功');
     hideLoading();
     showConn('已连接，正在等待房主响应...', false);
     sendGroupMsg({ type:'join', userId:myUserId, name:myName });
+    showDebug('已发送join消息');
     // 5秒后如果没收到房主响应，提示房间不存在
     setTimeout(() => {
       if (!curState || curState.phase !== 'lobby') {
@@ -878,6 +903,7 @@ function onMessageReceived(event) {
     if (msg.to !== groupId) continue;
     let payload;
     try { payload = JSON.parse(msg.payload.data); } catch(e) { continue; }
+    showDebug('收到消息: ' + payload.type);
     handleMessage(payload);
   }
 }
@@ -918,9 +944,12 @@ function handleMessage(msg) {
   else if (msg.type === 'views' && !isHost) {
     // 房主发送的游戏状态
     if (msg.views[myUserId]) {
+      showDebug('收到游戏视图, 从' + Object.keys(msg.views).length + '人中找到我');
       curState = msg.views[myUserId];
       myId = curState.myId;
       render(curState);
+    } else {
+      showDebug('收到视图但没我的! views keys: ' + Object.keys(msg.views).join(','));
     }
   }
   else if (msg.type === 'lobby_views' && !isHost) {
@@ -937,19 +966,40 @@ function handleMessage(msg) {
 
 // ========== 渲染 ==========
 
+// ========== 调试系统 ==========
+function showDebug(msg) {
+  const p = document.getElementById('debugPanel');
+  if (!p) return;
+  p.style.display = '';
+  const time = new Date().toLocaleTimeString();
+  p.innerHTML = `[${time}] ${msg}<br>` + p.innerHTML;
+  if (p.children.length > 20) p.removeChild(p.lastChild);
+  console.log('[DEBUG]', msg);
+}
+function toggleDebug() {
+  const p = document.getElementById('debugPanel');
+  p.style.display = p.style.display === 'none' ? '' : 'none';
+}
+function showErrorFull(msg, stack) {
+  const e = document.getElementById('errorOverlay');
+  if (!e) { alert('FATAL: ' + msg); return; }
+  e.innerHTML = '<div style="font-size:16px;font-weight:bold;margin-bottom:10px">⚠ JavaScript 错误</div>' +
+    '<div style="margin-bottom:10px">' + msg + '</div>' +
+    (stack ? '<pre style="white-space:pre-wrap;font-size:10px">' + stack + '</pre>' : '') +
+    '<div style="margin-top:10px;opacity:0.7">请截图发给开发者</div>';
+  e.style.display = '';
+}
+
 window.onerror = function(msgText, url, line, col, err) {
-  const d = document.createElement('div');
-  d.style.cssText = 'position:fixed;top:0;left:0;right:0;background:red;color:#fff;z-index:99999;font-size:12px;padding:8px;word-break:break-all';
-  d.textContent = 'JS错误: ' + msgText + ' (行' + line + ')';
-  document.body.appendChild(d);
-  console.error('JS错误详情:', err);
+  showErrorFull(msgText + ' (行' + line + ':' + col + ')', err ? err.stack : '');
   return true;
 };
 
 function render(s) {
-  if (!s) { console.error('render收到null state'); return; }
+  if (!s) { showDebug('render收到null state!'); return; }
   hideLoading();
   try {
+    showDebug('render: phase=' + s.phase + ' myId=' + s.myId + ' actions=' + (s.actions?s.actions.length:0));
     const lobby = document.getElementById('lobby');
     const gameDiv = document.getElementById('game');
     const over = document.getElementById('gameover');
@@ -972,6 +1022,7 @@ function render(s) {
     }
 
     renderGame(s);
+    showDebug('renderGame完成');
     // 自动跳过
     if (s.actions.length === 1 && s.actions[0].auto) {
       const autoAction = s.actions[0];
@@ -992,8 +1043,8 @@ function render(s) {
       }, 400);
     }
   } catch(e) {
-    console.error('render错误:', e.message, e.stack);
-    document.getElementById('actionArea').innerHTML = '<div style="color:red;padding:10px">渲染错误: ' + e.message + '</div>';
+    showDebug('render错误: ' + e.message);
+    showErrorFull('render: ' + e.message, e.stack);
   }
 }
 
@@ -1192,6 +1243,7 @@ function renderGameOver(s) {
 // ========== 启动检查 ==========
 function checkSDKLoaded() {
   if (typeof TencentCloudChat !== 'undefined' && typeof LibGenerateTestUserSig !== 'undefined') {
+    showDebug('SDK加载完成, TencentCloudChat=' + typeof TencentCloudChat + ' LibSig=' + typeof LibGenerateTestUserSig);
     hideLoading();
     document.getElementById('lobby').style.display = '';
   } else {
@@ -1201,7 +1253,10 @@ function checkSDKLoaded() {
 
 // 全局错误捕获
 window.addEventListener('unhandledrejection', function(event) {
-  console.error('Unhandled rejection:', event.reason);
+  const reason = event.reason;
+  const msg = reason && reason.message ? reason.message : String(reason);
+  showDebug('Promise错误: ' + msg);
+  showErrorFull('Promise错误: ' + msg, reason && reason.stack ? reason.stack : '');
 });
 
 // 启动
