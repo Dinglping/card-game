@@ -76,10 +76,8 @@ input{padding:10px;border:1px solid #d0d5dd;border-radius:6px;font-size:14px;wid
 .hand-card .drawn-mark{position:absolute;top:-4px;right:-4px;width:14px;height:14px;background:#0052D9;border-radius:50%;font-size:8px;color:#fff;display:flex;align-items:center;justify-content:center}
 
 /* 手牌排序模式 */
-.hand-card.sort-mode{border-color:#7b61ff;box-shadow:0 0 6px rgba(123,97,255,.3)}
-.sort-btns{display:flex;justify-content:space-between;width:100%;margin-top:2px}
-.sort-btn{font-size:10px;color:#7b61ff;cursor:pointer;padding:0 4px;user-select:none;-webkit-tap-highlight-color:transparent}
-.sort-btn:active{opacity:.5}
+.hand-card.sort-mode{border-color:#7b61ff;box-shadow:0 0 6px rgba(123,97,255,.3);cursor:grab}
+.hand-card.sort-mode:active{cursor:grabbing}
 .sort-link{font-size:11px;color:#7b61ff;cursor:pointer;text-decoration:underline;padding:0 4px}
 .sort-tag{font-size:11px;color:#fff;background:#7b61ff;padding:1px 8px;border-radius:3px;cursor:pointer}
 
@@ -633,6 +631,7 @@ let cardSelectMode = null;
 let imReady = false;
 let sortMode = false; // 排序模式开关
 let handOrder = [];   // 本地手牌排序顺序（card.id 数组）
+let dragCardId = null; // 拖拽的牌id
 
 // 按 handOrder 排序手牌视图
 function sortHand(hand) {
@@ -647,24 +646,13 @@ function sortHand(hand) {
   });
 }
 
-// 切换排序模式
+// 切换排序模式（退出时走完整 render 以恢复 cardSelectMode）
 function toggleSortMode() {
   sortMode = !sortMode;
-  // 进入排序模式时，用当前手牌顺序初始化 handOrder
   if (sortMode && curState && curState.myHand) {
     handOrder = curState.myHand.map(c => c.id);
   }
-  if (curState) renderGame(curState);
-}
-
-// 移动手牌位置
-function moveCard(cardId, dir) {
-  const idx = handOrder.indexOf(cardId);
-  if (idx < 0) return;
-  const newIdx = idx + dir;
-  if (newIdx < 0 || newIdx >= handOrder.length) return;
-  [handOrder[idx], handOrder[newIdx]] = [handOrder[newIdx], handOrder[idx]];
-  if (curState) renderGame(curState);
+  if (curState) render(curState);
 }
 
 function showLoading(text) {
@@ -1175,17 +1163,46 @@ function renderGame(s) {
   else if (s.phase === 'declaring') isMyTurn = (s.declareTurn === myId);
   else if (s.phase === 'a_baogi') isMyTurn = (myId === 0);
   else isMyTurn = (s.currentPlayer === myId);
-  const canPlay = cardSelectMode !== null;
+  const canPlay = cardSelectMode !== null && !sortMode;
   const displayHand = sortMode ? sortHand(s.myHand) : s.myHand;
   hr.innerHTML = displayHand.map(c => {
     const color = (c.suit === 1 || c.suit === 2) ? 'red' : 'black';
-    const playable = (canPlay && !sortMode) ? 'playable' : '';
+    const playable = canPlay ? 'playable' : '';
     const drawnMark = s.lastDrawn && c.id === s.lastDrawn.id ? '<span class="drawn-mark">★</span>' : '';
-    if (sortMode) {
-      return `<div class="hand-card ${color} sort-mode" data-id="${c.id}">${drawnMark}<span class="rank">${c.label}</span><span class="suit">${c.suitChar}</span><div class="sort-btns"><span class="sort-btn sort-left" onclick="event.stopPropagation();moveCard(${c.id},-1)">◀</span><span class="sort-btn sort-right" onclick="event.stopPropagation();moveCard(${c.id},1)">▶</span></div></div>`;
-    }
-    return `<div class="hand-card ${color} ${playable}" data-id="${c.id}">${drawnMark}<span class="rank">${c.label}</span><span class="suit">${c.suitChar}</span></div>`;
+    const sortAttr = sortMode ? ` draggable="true" data-drag-id="${c.id}"` : '';
+    return `<div class="hand-card ${color} ${playable}${sortMode?' sort-mode':''}" data-id="${c.id}"${sortAttr}>${drawnMark}<span class="rank">${c.label}</span><span class="suit">${c.suitChar}</span></div>`;
   }).join('');
+
+  // 排序模式：拖拽交换
+  if (sortMode) {
+    hr.querySelectorAll('.hand-card').forEach(el => {
+      el.ondragstart = (e) => {
+        dragCardId = parseInt(el.dataset.dragId);
+        e.dataTransfer.effectAllowed = 'move';
+        el.style.opacity = '0.4';
+      };
+      el.ondragend = () => {
+        el.style.opacity = '';
+      };
+      el.ondragover = (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+      };
+      el.ondrop = (e) => {
+        e.preventDefault();
+        const targetId = parseInt(el.dataset.dragId);
+        if (dragCardId === null || dragCardId === targetId) return;
+        const fromIdx = handOrder.indexOf(dragCardId);
+        const toIdx = handOrder.indexOf(targetId);
+        if (fromIdx < 0 || toIdx < 0) return;
+        // 交换位置
+        handOrder.splice(fromIdx, 1);
+        handOrder.splice(toIdx, 0, dragCardId);
+        dragCardId = null;
+        renderGame(curState);
+      };
+    });
+  }
 
   if (canPlay) {
     hr.querySelectorAll('.hand-card').forEach(el => {
