@@ -1008,10 +1008,10 @@ function render(s) {
       renderRoom(s); return;
     }
     if (s.phase === 'ended') {
-      lobby.style.display = 'none'; gameDiv.style.display = 'none'; over.style.display = '';
+      lobby.style.display = 'none'; gameDiv.style.display = 'none'; over.style.display = 'block';
       renderGameOver(s); return;
     }
-    lobby.style.display = 'none'; gameDiv.style.display = ''; over.style.display = 'none';
+    lobby.style.display = 'none'; gameDiv.style.display = 'block'; over.style.display = 'none';
 
     // 先设置 cardSelectMode（必须在 renderGame 之前，renderGame 依赖它）
     const needPlay = s.actions.some(a => a.action === 'play' || a.action === 'playFirst');
